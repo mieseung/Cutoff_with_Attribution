@@ -1,3 +1,13 @@
+# dataset
+glue_data/QQP/train.tsv
+glue_data/QQP/dev.tsv
+glue_data/QQP/test.tsv
+
+glue_data/STS-B/train.tsv
+glue_data/STS-B/dev.tsv
+glue_data/STS-B/test.tsv
+glue_data/STS-B/original
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
