@@ -795,7 +795,7 @@ class Trainer:
         loss = 0.0
 
         assert model.__class__ is RobertaForSequenceClassification
-        
+        # if self.args.aug_version == 'v3':     # TrainingArgs에 존재하지 않는 argument라 제거함
         input_ids = inputs['input_ids']
         token_type_ids = inputs.get('token_type_ids', None)
         labels = inputs.get('labels', None)
@@ -806,8 +806,8 @@ class Trainer:
 
         input_embeds, input_masks = self.generate_token_cutoff_embedding(embeds, masks, input_lens)
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
-                                                               attention_mask=input_masks,
-                                                               labels=labels)
+                                                                attention_mask=input_masks,
+                                                                labels=labels)
 
         if self.args.aug_ce_loss > 0:
             loss += self.args.aug_ce_loss * cutoff_outputs[0]
