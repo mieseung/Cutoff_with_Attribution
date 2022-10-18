@@ -233,8 +233,13 @@ def main():
     elif training_args.do_predict:
         
         checkpoint_aug_type = "checkpoint_token" if training_args.aug_type == "token_cutoff" else "checkpoint_span"
+        orig_task_name = data_args.task_name.upper()
+        
+        if orig_task_name == "COLA":
+            orig_task_name = "CoLA"
+        
         model = AutoModelForSequenceClassification.from_pretrained(
-            f"../checkpoint/{data_args.task_name.upper()}/{checkpoint_aug_type}/",
+            f"../checkpoint/{orig_task_name}/{checkpoint_aug_type}/",
             config = config
         )
         test_dataset = test_dataset_class(data_args, tokenizer = tokenizer)

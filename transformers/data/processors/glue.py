@@ -303,7 +303,7 @@ class ColaProcessor(DataProcessor):
     
     def get_test_examples(self, data_dir, segment='test'):
         """See base class."""
-        return self._create_examples(self._read_tsv(os.path.join(data_dir, "test.tsv")), "test", is_test=True)
+        return self._create_examples(self._read_tsv(os.path.join(data_dir, "test.tsv")), "test")
 
 
     def get_labels(self):
