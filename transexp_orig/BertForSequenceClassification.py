@@ -1,5 +1,6 @@
 from transformers import BertPreTrainedModel
 from transformers.utils import logging
+from transformers.modeling_outputs import SequenceClassifierOutput
 from transexp_orig.layers import *
 from transexp_orig.BERT import BertModel
 from torch.nn import CrossEntropyLoss, MSELoss
