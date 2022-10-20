@@ -87,7 +87,14 @@ class GlueDataset(Dataset):
         # Make sure only the first process in distributed training processes the dataset,
         # and the others will use the cache.
         lock_path = cached_features_file + ".lock"
-        with FileLock(lock_path):  
+        with FileLock(lock_path):
+            
+            examples = (
+                    processor.get_dev_examples(args.data_dir)
+                    if evaluate
+                    else processor.get_train_examples(args.data_dir)
+                )
+            self.examples = examples
   
             if os.path.exists(cached_features_file) and not args.overwrite_cache:
                 start = time.time()
@@ -105,13 +112,9 @@ class GlueDataset(Dataset):
                 ):
                     # HACK(label indices are swapped in RoBERTa pretrained model)
                     label_list[1], label_list[2] = label_list[2], label_list[1]
-                examples = (
-                    processor.get_dev_examples(args.data_dir)
-                    if evaluate
-                    else processor.get_train_examples(args.data_dir)
-                )
                 if limit_length is not None:
                     examples = examples[:limit_length]
+                
                 self.features = glue_convert_examples_to_features(
                     examples,
                     tokenizer,

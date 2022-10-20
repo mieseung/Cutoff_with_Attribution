@@ -24,7 +24,7 @@ from tqdm.auto import tqdm, trange
 
 from transexp_orig.BertForSequenceClassification import BertForSequenceClassification
 from transexp_orig.ExplanationGenerator import Generator
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, RobertaTokenizer
 
 from .data.data_collator import DataCollator, DefaultDataCollator
 from .modeling_utils import PreTrainedModel
@@ -499,6 +499,10 @@ class Trainer:
 
             epoch_iterator = tqdm(train_dataloader, desc=f"Epoch-{epoch}", disable=not self.is_local_master())
             for step, inputs in enumerate(epoch_iterator):
+                
+                # Since the batch size is 16, there are 16 data in each iteration
+                batch_data_segment = self.train_dataset.examples[step:step+16]
+                
                 # Skip past any already trained steps if resuming training
                 if steps_trained_in_current_epoch > 0:
                     steps_trained_in_current_epoch -= 1
@@ -512,7 +516,7 @@ class Trainer:
                     elif self.args.aug_type == 'dim_cutoff':
                         step_loss = self._training_step_with_dim_cutoff(model, inputs, optimizer)
                     elif self.args.aug_type == 'token_exp_cutoff':
-                        step_loss = self._training_step_with_token_exp_cutoff(model, inputs, optimizer)
+                        step_loss = self._training_step_with_token_exp_cutoff(model, inputs, optimizer, batch_data_segment)
                     else:
                         raise NotImplementedError
                 else:
@@ -867,7 +871,7 @@ class Trainer:
 
         return self._resolve_loss_item(loss, optimizer)
     
-    def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens, input_ids):
+    def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens, input_ids, batch_data_segment):
         # generate an explanation for the input
         input_ids = input_ids.to('cuda')
         attention_masks = masks.to('cuda')
@@ -876,8 +880,16 @@ class Trainer:
         input_masks = []
 
         for i in range(embeds.shape[0]):
-            input_id = input_ids[i].reshape(1, 128).to('cuda')
-            attention_mask = attention_masks[i].reshape(1, 128).to('cuda')
+            # input_id = input_ids[i].reshape(1, 128).to('cuda')
+            # attention_mask = attention_masks[i].reshape(1, 128).to('cuda')
+            
+            text = batch_data_segment[i].text_a
+            if batch_data_segment[i].text_b is not None:
+                text += batch_data_segment[i].text_b
+                        
+            encoding = self.attr_tokenizer(text, return_tensors='pt')
+            input_id = encoding['input_ids'].to('cuda')
+            attention_mask = encoding['attention_mask'].to('cuda')
             
             # TODO
             # RuntimeError: CUDA error: device-side assert triggered
@@ -910,7 +922,7 @@ class Trainer:
         return input_embeds, input_masks
     
     def _training_step_with_token_exp_cutoff(
-        self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer
+        self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer, batch_data_segment
     ) -> float:
         
         model.train()
@@ -931,7 +943,7 @@ class Trainer:
         masks = inputs['attention_mask']
         input_lens = torch.sum(masks, dim=1)
 
-        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids)
+        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids, batch_data_segment)
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
                                                                 labels=labels)
