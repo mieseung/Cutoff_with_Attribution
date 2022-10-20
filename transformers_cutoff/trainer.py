@@ -22,6 +22,10 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data.sampler import RandomSampler, Sampler, SequentialSampler
 from tqdm.auto import tqdm, trange
 
+from transexp_orig.BertForSequenceClassification import BertForSequenceClassification
+from transexp_orig.ExplanationGenerator import Generator
+from transformers import AutoTokenizer
+
 from .data.data_collator import DataCollator, DefaultDataCollator
 from .modeling_utils import PreTrainedModel
 from .optimization import AdamW, get_linear_schedule_with_warmup
@@ -168,6 +172,7 @@ class Trainer:
         self,
         model: PreTrainedModel,
         args: TrainingArguments,
+        task_name: str,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
         eval_dataset: Optional[Dataset] = None,
@@ -184,6 +189,17 @@ class Trainer:
             prediction_loss_only:
                 (Optional) in evaluation and prediction, only return the loss
         """
+        #! Model for Transformer explainability attribution
+        self.task = task_name.upper()
+        if self.task=="COLA":
+            self.task = "CoLA"
+
+        self.attr_model = BertForSequenceClassification.from_pretrained(f"textattack/bert-base-uncased-{self.task}").to("cuda")
+        self.attr_model.eval()
+        self.attr_tokenizer = AutoTokenizer.from_pretrained(f"textattack/bert-base-uncased-{self.task}")
+        self.attr_explanations = Generator(self.attr_model)
+        
+        #! original code starts from here
         self.model = model.to(args.device)
         self.args = args
         if data_collator is not None:
@@ -222,6 +238,18 @@ class Trainer:
             # Set an xla_device flag on the model's config.
             # We'll find a more elegant and not need to do this in the future.
             self.model.config.xla_device = True
+
+    def _get_high_attr_index(self, text_batch):
+        encoding = self.attr_tokenizer(text_batch, return_tensors='pt')
+        input_ids = encoding['input_ids'].to("cuda")
+        attention_mask = encoding['attention_mask'].to("cuda")
+        # generate an explanation for the input
+        expl = self.attr_explanations.generate_LRP(input_ids=input_ids, attention_mask=attention_mask, start_layer=0)[0]
+        # normalize scores
+        expl = (expl - expl.min()) / (expl.max() - expl.min())
+        tokens = self.attr_tokenizer.convert_ids_to_tokens(input_ids.flatten())
+        print([(tokens[i], expl[i].item()) for i in range(len(tokens))])
+        #! return index at here
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -639,6 +667,33 @@ class Trainer:
         return input_embeds, input_masks
 
     def generate_token_cutoff_embedding(self, embeds, masks, input_lens):
+        input_embeds = []
+        input_masks = []
+        for i in range(embeds.shape[0]):
+            cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
+            zero_index = torch.randint(input_lens[i], (cutoff_length,))
+            
+            # 0으로 대체할 지점의 index를 랜덤으로 생성
+            cutoff_embed = embeds[i]
+            cutoff_mask = masks[i]
+
+            tmp_mask = torch.ones(cutoff_embed.shape[0], ).to(self.args.device)
+            for ind in zero_index:
+                tmp_mask[ind] = 0
+            # 설정된 index 위치를 0으로 대체
+
+            cutoff_embed = torch.mul(tmp_mask[:, None], cutoff_embed)
+            cutoff_mask = torch.mul(tmp_mask, cutoff_mask).type(torch.int64)
+
+            input_embeds.append(cutoff_embed)
+            input_masks.append(cutoff_mask)
+
+        input_embeds = torch.stack(input_embeds, dim=0)
+        input_masks = torch.stack(input_masks, dim=0)
+
+        return input_embeds, input_masks
+
+    def generate_token_cutoff_embedding_transexp(self, embeds, masks, input_lens):
         input_embeds = []
         input_masks = []
         for i in range(embeds.shape[0]):

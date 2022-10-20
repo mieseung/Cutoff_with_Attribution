@@ -89,8 +89,7 @@ class PaddedSequence:
         return PaddedSequence(self.data.transpose(0, 1), not self.batch_first, self.padding_value)
 
 
-def extract_embeddings(vocab: Set[str], embedding_file: str, unk_token: str = 'UNK', pad_token: str = 'PAD') -> (
-nn.Embedding, Dict[str, int], List[str]):
+def extract_embeddings(vocab: Set[str], embedding_file: str, unk_token: str = 'UNK', pad_token: str = 'PAD'):
     vocab = vocab | set([unk_token, pad_token])
     if embedding_file.endswith('.bin'):
         WVs = KeyedVectors.load_word2vec_format(embedding_file, binary=True)
