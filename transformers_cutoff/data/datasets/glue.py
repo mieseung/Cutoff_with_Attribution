@@ -87,8 +87,8 @@ class GlueDataset(Dataset):
         # Make sure only the first process in distributed training processes the dataset,
         # and the others will use the cache.
         lock_path = cached_features_file + ".lock"
-        with FileLock(lock_path):
-
+        with FileLock(lock_path):  
+  
             if os.path.exists(cached_features_file) and not args.overwrite_cache:
                 start = time.time()
                 self.features = torch.load(cached_features_file)
