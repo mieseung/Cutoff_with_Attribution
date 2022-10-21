@@ -12,8 +12,8 @@ import glob
 
 import numpy as np
 
-from transformers_cutoff import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
-from transformers import GlueDataTrainingArguments as DataTrainingArguments
+from transformers_cutoff import AutoConfig, AutoModelForSequenceClassification, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
+from transformers import GlueDataTrainingArguments as DataTrainingArguments, AutoTokenizer
 from transformers_cutoff import (
     HfArgumentParser,
     Trainer,
@@ -106,7 +106,7 @@ def main():
     if task=="COLA":
         task = "CoLA"
     tokenizer = AutoTokenizer.from_pretrained(
-        f"textattack/bert-base-uncased-{task}",
+        f"textattack/roberta-base-{task}",
         cache_dir=model_args.cache_dir,
     )
 
