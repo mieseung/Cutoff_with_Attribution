@@ -78,7 +78,7 @@ class GlueDataset(Dataset):
         self.output_mode = glue_output_modes[args.task_name]
         # Load data features from cache or dataset file
         cached_features_file = os.path.join(
-            args.data_dir,
+            "/home/jovyan/.cache/torch/transformers/",
             "cached_{}_{}_{}_{}".format(
                 "dev" if evaluate else "train", tokenizer.__class__.__name__, str(args.max_seq_length), args.task_name,
             ),
@@ -125,6 +125,54 @@ class GlueDataset(Dataset):
                 logger.info(
                     "Saving features into cached file %s [took %.3f s]", cached_features_file, time.time() - start
                 )
+
+    def __len__(self):
+        return len(self.features)
+
+    def __getitem__(self, i) -> InputFeatures:
+        return self.features[i]
+
+class GlueTestDataset(Dataset):
+    """
+    This will be superseded by a framework-agnostic approach
+    soon.
+    """
+
+    args: GlueDataTrainingArguments
+    output_mode: str
+    features: List[InputFeatures]
+
+    def __init__(
+        self,
+        args: GlueDataTrainingArguments,
+        tokenizer: PreTrainedTokenizer,
+        limit_length: Optional[int] = None,
+        evaluate=False,
+    ):
+        self.args = args
+        processor = glue_processors[args.task_name]()
+        print(dir(glue_processors[args.task_name]))
+        self.output_mode = glue_output_modes[args.task_name]
+        
+        logger.info(f"Get dataset file at {args.data_dir}")
+        label_list = processor.get_labels()
+        if args.task_name in ["mnli", "mnli-mm"] and tokenizer.__class__ in (
+            RobertaTokenizer,
+            RobertaTokenizerFast,
+            XLMRobertaTokenizer,
+        ):
+            # HACK(label indices are swapped in RoBERTa pretrained model)
+            label_list[1], label_list[2] = label_list[2], label_list[1]
+        examples = processor.get_test_examples(args.data_dir)
+        if limit_length is not None:
+            examples = examples[:limit_length]
+        self.features = glue_convert_examples_to_features(
+            examples,
+            tokenizer,
+            max_length=args.max_seq_length,
+            label_list=label_list,
+            output_mode=self.output_mode,
+        )
 
     def __len__(self):
         return len(self.features)

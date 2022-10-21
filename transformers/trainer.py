@@ -795,31 +795,31 @@ class Trainer:
         loss = 0.0
 
         assert model.__class__ is RobertaForSequenceClassification
-        if self.args.aug_version == 'v3':
-            input_ids = inputs['input_ids']
-            token_type_ids = inputs.get('token_type_ids', None)
-            labels = inputs.get('labels', None)
-            embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids)
+        # if self.args.aug_version == 'v3':     # TrainingArgs에 존재하지 않는 argument라 제거함
+        input_ids = inputs['input_ids']
+        token_type_ids = inputs.get('token_type_ids', None)
+        labels = inputs.get('labels', None)
+        embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids)
 
-            masks = inputs['attention_mask']
-            input_lens = torch.sum(masks, dim=1)
+        masks = inputs['attention_mask']
+        input_lens = torch.sum(masks, dim=1)
 
-            input_embeds, input_masks = self.generate_token_cutoff_embedding(embeds, masks, input_lens)
-            cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
-                                                                   attention_mask=input_masks,
-                                                                   labels=labels)
+        input_embeds, input_masks = self.generate_token_cutoff_embedding(embeds, masks, input_lens)
+        cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
+                                                                attention_mask=input_masks,
+                                                                labels=labels)
 
-            if self.args.aug_ce_loss > 0:
-                loss += self.args.aug_ce_loss * cutoff_outputs[0]
+        if self.args.aug_ce_loss > 0:
+            loss += self.args.aug_ce_loss * cutoff_outputs[0]
 
-            if self.args.aug_js_loss > 0:
-                assert self.args.n_gpu == 1
-                ori_logits = ori_outputs[1]
-                aug_logits = cutoff_outputs[1]
-                p = torch.softmax(ori_logits + 1e-10, dim=1)
-                q = torch.softmax(aug_logits + 1e-10, dim=1)
-                aug_js_loss = js_div(p, q)
-                loss += self.args.aug_js_loss * aug_js_loss
+        if self.args.aug_js_loss > 0:
+            assert self.args.n_gpu == 1
+            ori_logits = ori_outputs[1]
+            aug_logits = cutoff_outputs[1]
+            p = torch.softmax(ori_logits + 1e-10, dim=1)
+            q = torch.softmax(aug_logits + 1e-10, dim=1)
+            aug_js_loss = js_div(p, q)
+            loss += self.args.aug_js_loss * aug_js_loss
 
         return self._resolve_loss_item(loss, optimizer)
 
@@ -1068,10 +1068,16 @@ class Trainer:
         if eval_losses > 0:
             metrics["eval_loss"] = eval_losses / eval_size
 
-        # Prefix all keys with eval_
+        # Prefix keys with eval_ or test_
         for key in list(metrics.keys()):
-            if not key.startswith("eval_"):
+            if description == "Evaluation" and not key.startswith("eval_"):
                 metrics[f"eval_{key}"] = metrics.pop(key)
+            elif description == "Prediction" and not key.startswith("test_"):
+                if key.startswith("eval_"):
+                    key_name = key.split("_")[1]
+                    metrics[f"test_{key_name}"] = metrics.pop(key)
+                else:
+                    metrics[f"test_{key}"] = metrics.pop(key)
 
         return PredictionOutput(predictions=preds, label_ids=label_ids, metrics=metrics)
 
