@@ -239,17 +239,14 @@ class Trainer:
             # We'll find a more elegant and not need to do this in the future.
             self.model.config.xla_device = True
 
-    def _get_high_attr_index(self, text_batch):
+    def _get_low_attr_index(self, text_batch):
         encoding = self.attr_tokenizer(text_batch, return_tensors='pt')
         input_ids = encoding['input_ids'].to("cuda")
         attention_mask = encoding['attention_mask'].to("cuda")
         # generate an explanation for the input
         expl = self.attr_explanations.generate_LRP(input_ids=input_ids, attention_mask=attention_mask, start_layer=0)[0]
-        # normalize scores
-        expl = (expl - expl.min()) / (expl.max() - expl.min())
-        tokens = self.attr_tokenizer.convert_ids_to_tokens(input_ids.flatten())
-        print([(tokens[i], expl[i].item()) for i in range(len(tokens))])
-        #! return index at here
+        minidx = torch.argmin(expl).item()
+        return minidx
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -698,7 +695,7 @@ class Trainer:
         input_masks = []
         for i in range(embeds.shape[0]):
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
-            zero_index = torch.randint(input_lens[i], (cutoff_length,))
+            zero_index = _get_low_attr_index()
             
             # 0으로 대체할 지점의 index를 랜덤으로 생성
             cutoff_embed = embeds[i]
