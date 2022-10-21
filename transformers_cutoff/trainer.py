@@ -173,6 +173,7 @@ class Trainer:
         model: PreTrainedModel,
         args: TrainingArguments,
         task_name: str,
+        tokenizer: AutoTokenizer,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
         eval_dataset: Optional[Dataset] = None,
@@ -190,13 +191,9 @@ class Trainer:
                 (Optional) in evaluation and prediction, only return the loss
         """
         #! Model for Transformer explainability attribution
-        self.task = task_name.upper()
-        if self.task=="COLA":
-            self.task = "CoLA"
-
-        self.attr_model = BertForSequenceClassification.from_pretrained(f"textattack/bert-base-uncased-{self.task}").to("cuda")
+        self.attr_model = BertForSequenceClassification.from_pretrained(f"textattack/bert-base-uncased-{task_name}").to("cuda")
         self.attr_model.eval()
-        self.attr_tokenizer = AutoTokenizer.from_pretrained(f"textattack/bert-base-uncased-{self.task}")
+        self.attr_tokenizer = tokenizer
         self.attr_explanations = Generator(self.attr_model)
         
         #! original code starts from here
@@ -238,15 +235,6 @@ class Trainer:
             # Set an xla_device flag on the model's config.
             # We'll find a more elegant and not need to do this in the future.
             self.model.config.xla_device = True
-
-    def _get_low_attr_index(self, text_batch):
-        encoding = self.attr_tokenizer(text_batch, return_tensors='pt')
-        input_ids = encoding['input_ids'].to("cuda")
-        attention_mask = encoding['attention_mask'].to("cuda")
-        # generate an explanation for the input
-        expl = self.attr_explanations.generate_LRP(input_ids=input_ids, attention_mask=attention_mask, start_layer=0)[0]
-        minidx = torch.argmin(expl).item()
-        return minidx
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -690,12 +678,23 @@ class Trainer:
 
         return input_embeds, input_masks
 
-    def generate_token_cutoff_embedding_transexp(self, embeds, masks, input_lens):
+    def _get_low_attr_index(self, inputs):
+        input_ids = inputs['input_ids'].to(self.args.device)
+        attention_mask = inputs['attention_mask'].to(self.args.device)
+        # generate an explanation for the input
+        expl = self.attr_explanations.generate_LRP(input_ids=input_ids, attention_mask=attention_mask, start_layer=0)[0]
+        expl = (expl - expl.min()) / (expl.max() - expl.min())
+
+        #! min 만 반환하지 말고 random 하게?
+        minidx = torch.argmin(expl).item()
+        return minidx
+
+    def generate_token_cutoff_embedding_transexp(self, embeds, masks, input_lens, inputs):
         input_embeds = []
         input_masks = []
         for i in range(embeds.shape[0]):
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
-            zero_index = _get_low_attr_index()
+            zero_index = self._get_low_attr_index(inputs)
             
             # 0으로 대체할 지점의 index를 랜덤으로 생성
             cutoff_embed = embeds[i]
@@ -856,7 +855,8 @@ class Trainer:
         masks = inputs['attention_mask']
         input_lens = torch.sum(masks, dim=1)
 
-        input_embeds, input_masks = self.generate_token_cutoff_embedding(embeds, masks, input_lens)
+        # input_embeds, input_masks = self.generate_token_cutoff_embedding(embeds, masks, input_lens)
+        input_embeds, input_masks = self.generate_token_cutoff_embedding_transexp(embeds, masks, input_lens, inputs)
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
                                                                 labels=labels)

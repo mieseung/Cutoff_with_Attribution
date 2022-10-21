@@ -96,8 +96,17 @@ def main():
     except KeyError:
         raise ValueError("Task not found: %s" % (data_args.task_name))
 
+    #! original code
+    # tokenizer = AutoTokenizer.from_pretrained(
+    #     model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+    #     cache_dir=model_args.cache_dir,
+    # )
+    #! new code for trans exp
+    task = data_args.task_name.upper()
+    if task=="COLA":
+        task = "CoLA"
     tokenizer = AutoTokenizer.from_pretrained(
-        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        f"textattack/bert-base-uncased-{task}",
         cache_dir=model_args.cache_dir,
     )
 
@@ -164,6 +173,8 @@ def main():
     trainer = Trainer(
         model=model,
         args=training_args,
+        task_name=task,
+        tokenizer=tokenizer,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
