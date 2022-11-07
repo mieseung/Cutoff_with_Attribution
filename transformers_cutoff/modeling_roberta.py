@@ -296,6 +296,9 @@ class RobertaForSequenceClassification(BertPreTrainedModel):
 
         self.roberta = RobertaModel(config)
         self.classifier = RobertaClassificationHead(config)
+        
+        self.exp_classifier = ExpLinear(config.hidden_size, config.num_labels)
+        self.exp_dropout = ExpDropout(config.hidden_dropout_prob)
 
     @add_start_docstrings_to_callable(ROBERTA_INPUTS_DOCSTRING)
     def forward(
@@ -308,44 +311,6 @@ class RobertaForSequenceClassification(BertPreTrainedModel):
         inputs_embeds=None,
         labels=None,
     ):
-        r"""
-        labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`, defaults to :obj:`None`):
-            Labels for computing the sequence classification/regression loss.
-            Indices should be in :obj:`[0, ..., config.num_labels - 1]`.
-            If :obj:`config.num_labels == 1` a regression loss is computed (Mean-Square loss),
-            If :obj:`config.num_labels > 1` a classification loss is computed (Cross-Entropy).
-
-    Returns:
-        :obj:`tuple(torch.FloatTensor)` comprising various elements depending on the configuration (:class:`~transformers.RobertaConfig`) and inputs:
-        loss (:obj:`torch.FloatTensor` of shape :obj:`(1,)`, `optional`, returned when :obj:`label` is provided):
-            Classification (or regression if config.num_labels==1) loss.
-        logits (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, config.num_labels)`):
-            Classification (or regression if config.num_labels==1) scores (before SoftMax).
-        hidden_states (:obj:`tuple(torch.FloatTensor)`, `optional`, returned when ``config.output_hidden_states=True``):
-            Tuple of :obj:`torch.FloatTensor` (one for the output of the embeddings + one for the output of each layer)
-            of shape :obj:`(batch_size, sequence_length, hidden_size)`.
-
-            Hidden-states of the model at the output of each layer plus the initial embedding outputs.
-        attentions (:obj:`tuple(torch.FloatTensor)`, `optional`, returned when ``config.output_attentions=True``):
-            Tuple of :obj:`torch.FloatTensor` (one for each layer) of shape
-            :obj:`(batch_size, num_heads, sequence_length, sequence_length)`.
-
-            Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
-            heads.
-
-    Examples::
-
-        from transformers import RobertaTokenizer, RobertaForSequenceClassification
-        import torch
-
-        tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
-        model = RobertaForSequenceClassification.from_pretrained('roberta-base')
-        input_ids = torch.tensor(tokenizer.encode("Hello, my dog is cute", add_special_tokens=True)).unsqueeze(0)  # Batch size 1
-        labels = torch.tensor([1]).unsqueeze(0)  # Batch size 1
-        outputs = model(input_ids, labels=labels)
-        loss, logits = outputs[:2]
-
-        """
         outputs = self.roberta(
             input_ids,
             attention_mask=attention_mask,
@@ -408,6 +373,85 @@ class RobertaForSequenceClassification(BertPreTrainedModel):
         logits = self.classifier(sequence_output)
         return sequence_output, logits
 
+    def relprop(self, cam=None, **kwargs):
+        cam = self.exp_classifier.relprop(cam, **kwargs)
+        cam = self.dropout.relprop(cam, **kwargs)
+        cam = self.bert.relprop(cam, **kwargs)
+        # print("conservation: ", cam.sum())
+        return cam
+
+class RobertaClassificationHead(nn.Module):
+    """Head for sentence-level classification tasks."""
+
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
+
+    def forward(self, features, **kwargs):
+        x = features[:, 0, :]  # take <s> token (equiv. to [CLS])
+        x = self.dropout(x)
+        x = self.dense(x)
+        x = torch.tanh(x)
+        x = self.dropout(x)
+        x = self.out_proj(x)
+        return x
+
+def forward_hook(self, input, output):
+    print("forward hook!!!!!")
+    if type(input[0]) in (list, tuple):
+        self.X = []
+        for i in input[0]:
+            x = i.detach()
+            x.requires_grad = True
+            self.X.append(x)
+    else:
+        self.X = input[0].detach()
+        self.X.requires_grad = True
+
+    self.Y = output
+
+class RelProp(nn.Module):
+    def __init__(self):
+        super(RelProp, self).__init__()
+        # if not self.training:
+        self.register_forward_hook(forward_hook)
+
+    def gradprop(self, Z, X, S):
+        C = torch.autograd.grad(Z, X, S, retain_graph=True)
+        return C
+
+    def relprop(self, R, alpha):
+        return R
+
+class ExpLinear(nn.Linear, RelProp):
+    def relprop(self, R, alpha):
+        beta = alpha - 1
+        pw = torch.clamp(self.weight, min=0)
+        nw = torch.clamp(self.weight, max=0)
+        px = torch.clamp(self.X, min=0)
+        nx = torch.clamp(self.X, max=0)
+
+        def f(w1, w2, x1, x2):
+            Z1 = F.linear(x1, w1)
+            Z2 = F.linear(x2, w2)
+            S1 = safe_divide(R, Z1 + Z2)
+            S2 = safe_divide(R, Z1 + Z2)
+            C1 = x1 * self.gradprop(Z1, x1, S1)[0]
+            C2 = x2 * self.gradprop(Z2, x2, S2)[0]
+
+            return C1 + C2
+
+        activator_relevances = f(pw, nw, px, nx)
+        inhibitor_relevances = f(nw, pw, px, nx)
+
+        R = alpha * activator_relevances - beta * inhibitor_relevances
+
+        return R
+
+class ExpDropout(nn.Dropout, RelProp):
+    pass
 
 @add_start_docstrings(
     """Roberta Model with a multiple choice classification head on top (a linear layer on top of
@@ -607,25 +651,6 @@ class RobertaForTokenClassification(BertPreTrainedModel):
             outputs = (loss,) + outputs
 
         return outputs  # (loss), scores, (hidden_states), (attentions)
-
-
-class RobertaClassificationHead(nn.Module):
-    """Head for sentence-level classification tasks."""
-
-    def __init__(self, config):
-        super().__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
-
-    def forward(self, features, **kwargs):
-        x = features[:, 0, :]  # take <s> token (equiv. to [CLS])
-        x = self.dropout(x)
-        x = self.dense(x)
-        x = torch.tanh(x)
-        x = self.dropout(x)
-        x = self.out_proj(x)
-        return x
 
 
 @add_start_docstrings(

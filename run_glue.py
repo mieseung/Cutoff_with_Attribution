@@ -25,6 +25,7 @@ from transformers_cutoff import (
 )
 
 from utils import report_results
+from collections import OrderedDict
 
 
 @dataclass
@@ -130,7 +131,14 @@ def main():
     )
 
     pretrained_state_dict = {k: v for k, v in mnli_model.state_dict().items() if k != 'classifier.out_proj.bias' and k != 'classifier.out_proj.weight'}
-    model.load_state_dict(pretrained_state_dict, strict=False)
+    
+    temp_state_dict = OrderedDict()
+    
+    for i, j in pretrained_state_dict.items():
+        name = i.replace("exp_", "")
+        temp_state_dict[name] = j
+    
+    model.load_state_dict(temp_state_dict, strict=False)
 
     # Get datasets
     train_dataset_class = GlueDataset
