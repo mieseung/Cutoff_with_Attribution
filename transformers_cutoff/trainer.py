@@ -900,7 +900,7 @@ class Trainer:
             # normalize scores
             expl = (expl - expl.min()) / (expl.max() - expl.min())
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
-            _, max_attr_idx = torch.topk(expl.flatten(), cutoff_length) # do not convert id to token correctly with RobertaTokenizer
+            _, max_attr_idx = torch.topk(expl.flatten(), 1) # do not convert id to token correctly with RobertaTokenizer
             
             # set zero for argmax indices
             cutoff_embed = embeds[i]

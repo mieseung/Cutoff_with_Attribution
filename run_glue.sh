@@ -17,7 +17,7 @@ python run_glue.py \
   --do_eval \
   --evaluate_during_training \
   --do_aug \
-  --aug_type 'token_cutoff' \
+  --aug_type 'token_exp_cutoff' \
   --aug_cutoff_ratio 0.1 \
   --aug_ce_loss 1.0 \
   --aug_js_loss 1.0 \
@@ -26,5 +26,5 @@ python run_glue.py \
   --logging_steps 500 \
   --save_steps 500 \
   --per_gpu_train_batch_size $BATCH_SIZE \
-  --output_dir results/$TASK_NAME-roberta_base-cutoff 
-  # --overwrite_output_dir
+  --output_dir results/$TASK_NAME-roberta_base-cutoff \
+  --overwrite_output_dir
