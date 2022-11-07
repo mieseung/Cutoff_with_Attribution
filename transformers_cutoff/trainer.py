@@ -31,6 +31,8 @@ from utils import report_results
 
 from .modeling_roberta import RobertaForMaskedLM, RobertaForSequenceClassification
 
+from .transexp_orig.ExplanationGenerator import Generator
+
 try:
     from apex import amp
 
@@ -502,7 +504,7 @@ class Trainer:
                     elif self.args.aug_type == 'dim_cutoff':
                         step_loss = self._training_step_with_dim_cutoff(model, inputs, optimizer)
                     elif self.args.aug_type == 'token_exp_cutoff':
-                        step_loss = self.
+                        step_loss = self.training_step_with_exp_token_cutoff(model, inputs, optimizer)
                     else:
                         raise NotImplementedError
                 else:
@@ -676,6 +678,27 @@ class Trainer:
         # TODO
         input_embeds = []
         input_masks = []
+        
+        for i in range(embeds.shape[0]):                                            # embeds.shape[0] == batch_size
+            cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
+            zero_index = torch.randint(input_lens[i], (cutoff_length,))
+            
+            # 0으로 대체할 지점의 index를 랜덤으로 생성
+            cutoff_embed = embeds[i]
+            cutoff_mask = masks[i]
+
+            tmp_mask = torch.ones(cutoff_embed.shape[0], ).to(self.args.device)
+            for ind in zero_index:
+                tmp_mask[ind] = 0
+
+            cutoff_embed = torch.mul(tmp_mask[:, None], cutoff_embed)
+            cutoff_mask = torch.mul(tmp_mask, cutoff_mask).type(torch.int64)
+
+            input_embeds.append(cutoff_embed)
+            input_masks.append(cutoff_mask)
+
+        input_embeds = torch.stack(input_embeds, dim=0)
+        input_masks = torch.stack(input_masks, dim=0)
         
         return input_embeds, input_masks
 
