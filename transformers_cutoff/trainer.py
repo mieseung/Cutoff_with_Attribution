@@ -501,6 +501,8 @@ class Trainer:
                         step_loss = self._training_step_with_token_cutoff(model, inputs, optimizer)
                     elif self.args.aug_type == 'dim_cutoff':
                         step_loss = self._training_step_with_dim_cutoff(model, inputs, optimizer)
+                    elif self.args.aug_type == 'token_exp_cutoff':
+                        step_loss = self.
                     else:
                         raise NotImplementedError
                 else:
@@ -670,6 +672,13 @@ class Trainer:
 
         return input_embeds, input_masks
 
+    def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens):
+        # TODO
+        input_embeds = []
+        input_masks = []
+        
+        return input_embeds, input_masks
+
     def generate_dim_cutoff_embedding(self, embeds, masks, input_lens):
         input_embeds = []
         input_masks = []
@@ -692,6 +701,47 @@ class Trainer:
         input_masks = torch.stack(input_masks, dim=0)
 
         return input_embeds, input_masks
+    
+    def _training_step_with_token_exp_cutoff(
+         self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer
+    ) -> float:
+        # TODO : use transformer explainability
+        
+        model.train()
+        for k, v in inputs.items():
+            inputs[k] = v.to(self.args.device)
+
+        ori_outputs = model(**inputs)
+        loss = 0.0
+
+        assert model.__class__ is RobertaForSequenceClassification
+        input_ids = inputs['input_ids']
+        token_type_ids = inputs.get('token_type_ids', None)
+        labels = inputs.get('labels', None)
+        embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids)
+
+        masks = inputs['attention_mask']
+        input_lens = torch.sum(masks, dim=1)
+
+        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens)
+        cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
+                                                                attention_mask=input_masks,
+                                                                labels=labels)
+
+        if self.args.aug_ce_loss > 0:
+            loss += self.args.aug_ce_loss * cutoff_outputs[0]
+
+        if self.args.aug_js_loss > 0:
+            assert self.args.n_gpu == 1
+            ori_logits = ori_outputs[1]
+            aug_logits = cutoff_outputs[1]
+            p = torch.softmax(ori_logits + 1e-10, dim=1)
+            q = torch.softmax(aug_logits + 1e-10, dim=1)
+            aug_js_loss = js_div(p, q)
+            loss += self.args.aug_js_loss * aug_js_loss
+
+        return self._resolve_loss_item(loss, optimizer)
+        
 
     def _training_step_with_span_cutoff(
             self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer
