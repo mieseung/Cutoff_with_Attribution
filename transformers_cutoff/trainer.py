@@ -504,7 +504,7 @@ class Trainer:
                     elif self.args.aug_type == 'dim_cutoff':
                         step_loss = self._training_step_with_dim_cutoff(model, inputs, optimizer)
                     elif self.args.aug_type == 'token_exp_cutoff':
-                        step_loss = self.training_step_with_exp_token_cutoff(model, inputs, optimizer)
+                        step_loss = self._training_step_with_token_exp_cutoff(model, inputs, optimizer)
                     else:
                         raise NotImplementedError
                 else:
@@ -742,8 +742,15 @@ class Trainer:
         token_type_ids = inputs.get('token_type_ids', None)
         labels = inputs.get('labels', None)
         embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids)
-
         masks = inputs['attention_mask']
+
+        exp_generator = Generator(model)
+        exp1 = exp_generator.generate_LRP(
+            input_ids = input_ids,
+            attention_mask = masks,
+            start_layer=0
+        )[0]
+        
         input_lens = torch.sum(masks, dim=1)
 
         input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens)
