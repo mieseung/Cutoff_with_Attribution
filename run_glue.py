@@ -164,7 +164,6 @@ def main():
     trainer = Trainer(
         model=model,
         args=training_args,
-        task_name=data_args.task_name,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
