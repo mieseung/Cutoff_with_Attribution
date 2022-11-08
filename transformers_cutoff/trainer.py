@@ -29,7 +29,7 @@ from .trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction, PredictionOutp
 from .training_args import TrainingArguments, is_tpu_available
 from utils import report_results
 
-from .modeling_roberta import RobertaForMaskedLM, RobertaForSequenceClassification
+from .modeling_exp_roberta import RobertaForMaskedLM, RobertaForSequenceClassification
 
 from .transexp_orig.ExplanationGenerator import Generator
 
@@ -743,7 +743,9 @@ class Trainer:
         labels = inputs.get('labels', None)
         embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids)
         masks = inputs['attention_mask']
-
+        
+        print("Exp generator!")
+        
         exp_generator = Generator(model)
         exp1 = exp_generator.generate_LRP(
             input_ids = input_ids,

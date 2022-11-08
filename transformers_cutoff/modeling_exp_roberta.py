@@ -6,9 +6,10 @@ import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss, MSELoss
 
 from .configuration_roberta import RobertaConfig
-from .modeling_bert import BertEmbeddings, BertLayerNorm, BertModel, BertPreTrainedModel, gelu
+from .modeling_bert import BertEmbeddings, BertLayerNorm, BertPreTrainedModel, gelu, BertModel
 from .modeling_utils import create_position_ids_from_input_ids
 from .transexp_orig.layers import *
+from transformers import PretrainedConfig
 
 ACT2FN = {
     "relu": ReLU,

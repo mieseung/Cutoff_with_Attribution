@@ -644,10 +644,7 @@ class BertModel(BertPreTrainedModel):
 
     def relprop(self, cam, **kwargs):
         cam = self.pooler.relprop(cam, **kwargs)
-        # print("111111111111",cam.sum())
         cam = self.encoder.relprop(cam, **kwargs)
-        # print("222222222222222", cam.sum())
-        # print("conservation: ", cam.sum())
         return cam
 
 
