@@ -27,7 +27,6 @@ from .configuration_roberta import RobertaConfig
 from .file_utils import add_start_docstrings, add_start_docstrings_to_callable
 from .modeling_bert import BertEmbeddings, BertLayerNorm, BertModel, BertPreTrainedModel, gelu
 from .modeling_utils import create_position_ids_from_input_ids
-from .transexp_orig.layers import Add, ExpDropout, ExpLayerNorm, ReLU, Tanh, GELU
 
 
 logger = logging.getLogger(__name__)
@@ -51,31 +50,6 @@ ROBERTA_PRETRAINED_MODEL_ARCHIVE_MAP = {
     "roberta-large-openai-detector": "https://cdn.huggingface.co/roberta-large-openai-detector-pytorch_model.bin",
 }
 
-ACT2FN = {
-    "relu": ReLU,
-    "tanh": Tanh,
-    "gelu": GELU,
-}
-
-def get_activation(activation_string):
-    if activation_string in ACT2FN:
-        return ACT2FN[activation_string]
-    else:
-        raise KeyError("function {} not found in ACT2FN mapping {}".format(activation_string, list(ACT2FN.keys())))
-
-def compute_rollout_attention(all_layer_matrices, start_layer=0):
-    # adding residual consideration
-    num_tokens = all_layer_matrices[0].shape[1]
-    batch_size = all_layer_matrices[0].shape[0]
-    eye = torch.eye(num_tokens).expand(batch_size, num_tokens, num_tokens).to(all_layer_matrices[0].device)
-    all_layer_matrices = [all_layer_matrices[i] + eye for i in range(len(all_layer_matrices))]
-    all_layer_matrices = [all_layer_matrices[i] / all_layer_matrices[i].sum(dim=-1, keepdim=True)
-                          for i in range(len(all_layer_matrices))]
-    joint_attention = all_layer_matrices[start_layer]
-    for i in range(start_layer+1, len(all_layer_matrices)):
-        joint_attention = all_layer_matrices[i].bmm(joint_attention)
-    return joint_attention
-
 class RobertaEmbeddings(BertEmbeddings):
     """
     Same as BertEmbeddings with a tiny tweak for positional embeddings indexing.
@@ -90,12 +64,6 @@ class RobertaEmbeddings(BertEmbeddings):
         )
         
         self.register_buffer("position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)))
-        
-        self.add1 = Add()
-        self.add2 = Add()
-        
-        self.dropout = ExpDropout(config.hidden_dropout_prob)
-        self.LayerNorm = ExpLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     def forward(self, input_ids=None, token_type_ids=None, position_ids=None, inputs_embeds=None):
         if position_ids is None:
@@ -108,15 +76,6 @@ class RobertaEmbeddings(BertEmbeddings):
         return super().forward(
             input_ids, token_type_ids=token_type_ids, position_ids=position_ids, inputs_embeds=inputs_embeds
         )
-    
-    def relprop(self, cam, **kwargs):
-        cam = self.dropout.relprop(cam, **kwargs)
-        cam = self.LayerNorm.relprop(cam, **kwargs)
-
-        # [inputs_embeds, position_embeddings, token_type_embeddings]
-        (cam) = self.add2.relprop(cam, **kwargs)
-
-        return cam
 
     def create_position_ids_from_inputs_embeds(self, inputs_embeds):
         """ We are provided embeddings directly. We cannot infer which are padded so just generate
@@ -448,7 +407,6 @@ def safe_divide(a, b):
     return a / den * b.ne(0).type(b.type())
 
 def forward_hook(self, input, output):
-    print(">>>>>> forward hook")
     if type(input[0]) in (list, tuple):
         self.X = []
         for i in input[0]:
@@ -465,7 +423,6 @@ class RelProp(nn.Module):
     def __init__(self):
         super(RelProp, self).__init__()
         # if not self.training:
-        print(">>>>>> register forward hook")
         self.register_forward_hook(forward_hook)
 
     def gradprop(self, Z, X, S):
