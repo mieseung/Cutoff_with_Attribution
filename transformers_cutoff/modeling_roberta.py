@@ -20,6 +20,7 @@ import logging
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss, MSELoss
 
 from .configuration_roberta import RobertaConfig
@@ -293,7 +294,8 @@ class RobertaForSequenceClassification(BertPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
-
+        
+        # TODO : set relprop things for RobertaModel
         self.roberta = RobertaModel(config)
         self.classifier = RobertaClassificationHead(config)
         
@@ -321,6 +323,7 @@ class RobertaForSequenceClassification(BertPreTrainedModel):
         )
         sequence_output = outputs[0]
         logits = self.classifier(sequence_output)
+        self.exp_classifier(sequence_output)
 
         outputs = (logits,) + outputs[2:] + (sequence_output,)
         if labels is not None:
@@ -375,9 +378,9 @@ class RobertaForSequenceClassification(BertPreTrainedModel):
 
     def relprop(self, cam=None, **kwargs):
         cam = self.exp_classifier.relprop(cam, **kwargs)
-        cam = self.dropout.relprop(cam, **kwargs)
+        cam = self.exp_dropout.relprop(cam, **kwargs)
+        # TODO : change bert model into roberta
         cam = self.bert.relprop(cam, **kwargs)
-        # print("conservation: ", cam.sum())
         return cam
 
 class RobertaClassificationHead(nn.Module):
@@ -398,12 +401,17 @@ class RobertaClassificationHead(nn.Module):
         x = self.out_proj(x)
         return x
 
+def safe_divide(a, b):
+    den = b.clamp(min=1e-9) + b.clamp(max=1e-9)
+    den = den + den.eq(0).type(den.type()) * 1e-9
+    return a / den * b.ne(0).type(b.type())
+
 def forward_hook(self, input, output):
-    print("forward hook!!!!!")
+    print(">>>>>> forward hook")
     if type(input[0]) in (list, tuple):
         self.X = []
         for i in input[0]:
-            x = i.detach()
+            x = i.detach()   # gradient 전파가 안되는 tensor 생성
             x.requires_grad = True
             self.X.append(x)
     else:
@@ -416,6 +424,7 @@ class RelProp(nn.Module):
     def __init__(self):
         super(RelProp, self).__init__()
         # if not self.training:
+        print(">>>>>> register forward hook")
         self.register_forward_hook(forward_hook)
 
     def gradprop(self, Z, X, S):

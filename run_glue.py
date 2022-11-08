@@ -12,7 +12,7 @@ import glob
 
 import numpy as np
 
-from transformers_cutoff import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
+from transformers_cutoff import RobertaForSequenceClassification, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
 from transformers import GlueDataTrainingArguments as DataTrainingArguments
 from transformers_cutoff import (
     HfArgumentParser,
