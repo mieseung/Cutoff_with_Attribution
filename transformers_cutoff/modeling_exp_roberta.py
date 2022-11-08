@@ -8,7 +8,7 @@ from torch.nn import CrossEntropyLoss, MSELoss
 from .configuration_roberta import RobertaConfig
 from .modeling_bert import BertEmbeddings, BertLayerNorm, BertModel, BertPreTrainedModel, gelu
 from .modeling_utils import create_position_ids_from_input_ids
-from .transexp_orig.layers import ReLU, Tanh, GELU
+from .transexp_orig.layers import *
 
 ACT2FN = {
     "relu": ReLU,
@@ -61,7 +61,12 @@ class RobertaEmbeddings(BertEmbeddings):
         )
         
         self.register_buffer("position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)))
-
+        self.LayerNorm = ExpLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.dropout = ExpDropout(config.hidden_dropout_prob)
+        
+        self.add1 = Add()
+        self.add2 = Add()
+        
     def forward(self, input_ids=None, token_type_ids=None, position_ids=None, inputs_embeds=None):
         if position_ids is None:
             if input_ids is not None:
@@ -88,6 +93,15 @@ class RobertaEmbeddings(BertEmbeddings):
             self.padding_idx + 1, sequence_length + self.padding_idx + 1, dtype=torch.long, device=inputs_embeds.device
         )
         return position_ids.unsqueeze(0).expand(input_shape)
+    
+    def relprop(self, cam, **kwargs):
+        cam = self.dropout.relprop(cam, **kwargs)
+        cam = self.LayerNorm.relprop(cam, **kwargs)
+
+        # [inputs_embeds, position_embeddings, token_type_embeddings]
+        (cam) = self.add2.relprop(cam, **kwargs)
+
+        return cam
 
 class RobertaModel(BertModel):
     """
