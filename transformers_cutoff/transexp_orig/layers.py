@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-__all__ = ['forward_hook', 'Clone', 'Add', 'Cat', 'ReLU', 'GELU', 'Dropout', 'BatchNorm2d', 'Linear', 'MaxPool2d',
+__all__ = ['forward_hook', 'Clone', 'Add', 'Cat', 'ReLU', 'GELU', 'ExpDropout', 'BatchNorm2d', 'Linear', 'MaxPool2d',
            'AdaptiveAvgPool2d', 'AvgPool2d', 'Conv2d', 'Sequential', 'safe_divide', 'einsum', 'Softmax', 'IndexSelect',
-           'LayerNorm', 'AddEye', 'Tanh', 'MatMul', 'Mul']
+           'ExpLayerNorm', 'AddEye', 'Tanh', 'MatMul', 'Mul']
 
 
 def safe_divide(a, b):
@@ -80,10 +80,11 @@ class Mul(RelPropSimple):
 
 class Tanh(nn.Tanh, RelProp):
     pass
-class LayerNorm(nn.LayerNorm, RelProp):
+
+class ExpLayerNorm(nn.LayerNorm, RelProp):
     pass
 
-class Dropout(nn.Dropout, RelProp):
+class ExpDropout(nn.Dropout, RelProp):
     pass
 
 class MatMul(RelPropSimple):

@@ -27,6 +27,7 @@ from .configuration_roberta import RobertaConfig
 from .file_utils import add_start_docstrings, add_start_docstrings_to_callable
 from .modeling_bert import BertEmbeddings, BertLayerNorm, BertModel, BertPreTrainedModel, gelu
 from .modeling_utils import create_position_ids_from_input_ids
+from .transexp_orig.layers import Add, ExpDropout, ExpLayerNorm
 
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,14 @@ class RobertaEmbeddings(BertEmbeddings):
         self.position_embeddings = nn.Embedding(
             config.max_position_embeddings, config.hidden_size, padding_idx=self.padding_idx
         )
+        
+        self.register_buffer("position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)))
+        
+        self.add1 = Add()
+        self.add2 = Add()
+        
+        self.dropout = ExpDropout(config.hidden_dropout_prob)
+        self.LayerNorm = ExpLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     def forward(self, input_ids=None, token_type_ids=None, position_ids=None, inputs_embeds=None):
         if position_ids is None:
@@ -76,6 +85,15 @@ class RobertaEmbeddings(BertEmbeddings):
         return super().forward(
             input_ids, token_type_ids=token_type_ids, position_ids=position_ids, inputs_embeds=inputs_embeds
         )
+    
+    def relprop(self, cam, **kwargs):
+        cam = self.dropout.relprop(cam, **kwargs)
+        cam = self.LayerNorm.relprop(cam, **kwargs)
+
+        # [inputs_embeds, position_embeddings, token_type_embeddings]
+        (cam) = self.add2.relprop(cam, **kwargs)
+
+        return cam
 
     def create_position_ids_from_inputs_embeds(self, inputs_embeds):
         """ We are provided embeddings directly. We cannot infer which are padded so just generate
@@ -380,7 +398,7 @@ class RobertaForSequenceClassification(BertPreTrainedModel):
         cam = self.exp_classifier.relprop(cam, **kwargs)
         cam = self.exp_dropout.relprop(cam, **kwargs)
         # TODO : change bert model into roberta
-        cam = self.bert.relprop(cam, **kwargs)
+        cam = self.roberta.relprop(cam, **kwargs)
         return cam
 
 class RobertaClassificationHead(nn.Module):
