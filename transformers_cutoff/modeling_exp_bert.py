@@ -363,16 +363,50 @@ class BertSelfAttention(nn.Module):
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        self.query = nn.Linear(config.hidden_size, self.all_head_size)
-        self.key = nn.Linear(config.hidden_size, self.all_head_size)
-        self.value = nn.Linear(config.hidden_size, self.all_head_size)
+        self.query = Linear(config.hidden_size, self.all_head_size)
+        self.key = Linear(config.hidden_size, self.all_head_size)
+        self.value = Linear(config.hidden_size, self.all_head_size)
 
-        self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
+        self.dropout = ExpDropout(config.attention_probs_dropout_prob)
+        
+        self.matmul1 = MatMul()
+        self.matmul2 = MatMul()
+        self.softmax = Softmax(dim=-1)
+        self.add = Add()
+        self.mul = Mul()
+        self.head_mask = None
+        self.attention_mask = None
+        self.clone = Clone()
+
+        self.attn_cam = None
+        self.attn = None
+        self.attn_gradients = None
+        
+    def get_attn(self):
+        return self.attn
+
+    def save_attn(self, attn):
+        self.attn = attn
+
+    def save_attn_cam(self, cam):
+        self.attn_cam = cam
+
+    def get_attn_cam(self):
+        return self.attn_cam
+
+    def save_attn_gradients(self, attn_gradients):
+        self.attn_gradients = attn_gradients
+
+    def get_attn_gradients(self):
+        return self.attn_gradients
 
     def transpose_for_scores(self, x):
         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
+
+    def transpose_for_scores_relprop(self, x):
+        return x.permute(0, 2, 1, 3).flatten(2)
 
     def forward(
         self,
@@ -382,7 +416,11 @@ class BertSelfAttention(nn.Module):
         encoder_hidden_states=None,
         encoder_attention_mask=None,
     ):
-        mixed_query_layer = self.query(hidden_states)
+        self.head_mask = head_mask
+        self.attention_mask = attention_mask
+        
+        h1, h2, h3 = self.clone(hidden_states, 3)
+        mixed_query_layer = self.query(h1)
 
         # If this is instantiated as a cross-attention module, the keys
         # and values come from an encoder; the attention mask needs to be
@@ -392,8 +430,8 @@ class BertSelfAttention(nn.Module):
             mixed_value_layer = self.value(encoder_hidden_states)
             attention_mask = encoder_attention_mask
         else:
-            mixed_key_layer = self.key(hidden_states)
-            mixed_value_layer = self.value(hidden_states)
+            mixed_key_layer = self.key(h2)
+            mixed_value_layer = self.value(h3)
 
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
@@ -405,11 +443,14 @@ class BertSelfAttention(nn.Module):
         if attention_mask is not None:
         #     # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
         #     attention_scores = attention_scores + attention_mask
-            attention_scores = attention_scores * torch.ge(attention_mask, 0).float() + attention_mask
-        #
+            attention_scores = self.add([attention_scores, attention_mask])
+        
         # # Normalize the attention scores to probabilities.
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
-
+        attention_probs = self.softmax(dim=-1)(attention_scores)
+        
+        self.save_attn(attention_probs)
+        attention_probs.register_hook(self.save_attn_gradients)
+         
         # This is actually dropping out entire tokens to attend to, which might
         # seem a bit unusual, but is taken from the original Transformer paper.
         attention_probs = self.dropout(attention_probs)
@@ -418,7 +459,7 @@ class BertSelfAttention(nn.Module):
         if head_mask is not None:
             attention_probs = attention_probs * head_mask
 
-        context_layer = torch.matmul(attention_probs, value_layer)
+        context_layer = self.matmul2(attention_probs, value_layer)
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
@@ -426,6 +467,50 @@ class BertSelfAttention(nn.Module):
 
         outputs = (context_layer, attention_probs) if self.output_attentions else (context_layer,)
         return outputs
+    
+    def relprop(self, cam, **kwargs):
+        # Assume output_attentions == False
+        cam = self.transpose_for_scores(cam)
+
+        # [attention_probs, value_layer]
+        (cam1, cam2) = self.matmul2.relprop(cam, **kwargs)
+        cam1 /= 2
+        cam2 /= 2
+        if self.head_mask is not None:
+            # [attention_probs, head_mask]
+            (cam1, _)= self.mul.relprop(cam1, **kwargs)
+
+
+        self.save_attn_cam(cam1)
+
+        cam1 = self.dropout.relprop(cam1, **kwargs)
+
+        cam1 = self.softmax.relprop(cam1, **kwargs)
+
+        if self.attention_mask is not None:
+            # [attention_scores, attention_mask]
+            (cam1, _) = self.add.relprop(cam1, **kwargs)
+
+        # [query_layer, key_layer.transpose(-1, -2)]
+        (cam1_1, cam1_2) = self.matmul1.relprop(cam1, **kwargs)
+        cam1_1 /= 2
+        cam1_2 /= 2
+
+        # query
+        cam1_1 = self.transpose_for_scores_relprop(cam1_1)
+        cam1_1 = self.query.relprop(cam1_1, **kwargs)
+
+        # key
+        cam1_2 = self.transpose_for_scores_relprop(cam1_2.transpose(-1, -2))
+        cam1_2 = self.key.relprop(cam1_2, **kwargs)
+
+        # value
+        cam2 = self.transpose_for_scores_relprop(cam2)
+        cam2 = self.value.relprop(cam2, **kwargs)
+
+        cam = self.clone.relprop((cam1_1, cam1_2, cam2), **kwargs)
+
+        return cam
 
 
 class BertSelfOutput(nn.Module):
