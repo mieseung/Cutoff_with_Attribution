@@ -194,6 +194,7 @@ class BertEmbeddings(nn.Module):
 class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
+        self.config = config
         self.output_attentions = config.output_attentions
         self.output_hidden_states = config.output_hidden_states
         self.layer = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])
@@ -216,7 +217,6 @@ class BertEncoder(nn.Module):
             
             if getattr(self.config, "gradient_checkpointing", False):
                 def create_custom_forward(module):
-                    print(*inputs)
                     def custom_forward(*inputs):
                         return module(*inputs, self.output_attentions)
                 
@@ -544,7 +544,7 @@ class BertIntermediate(nn.Module):
         super(BertIntermediate, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
         if isinstance(config.hidden_act, str):
-            self.intermediate_act_fn = ACT2FN[config.hidden_act]
+            self.intermediate_act_fn = ACT2FN[config.hidden_act]()
         else:
             self.intermediate_act_fn = config.hidden_act
 

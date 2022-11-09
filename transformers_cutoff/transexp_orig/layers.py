@@ -14,10 +14,7 @@ def safe_divide(a, b):
 
 
 def forward_hook(self, input, output):
-    print(">>>>>>forward hook!")
-    print(input[0])
     if type(input[0]) in (list, tuple): 
-        print(">>>>>>>>>1")
         self.X = []
         for i in input[0]:
             x = i.detach()
@@ -43,7 +40,6 @@ class RelProp(nn.Module):
 
     def gradprop(self, Z, X, S):
         C = torch.autograd.grad(Z, X, S, retain_graph=True, allow_unused=True)
-        print(C)
         return C
 
     def relprop(self, R, alpha):
@@ -52,8 +48,6 @@ class RelProp(nn.Module):
 
 class RelPropSimple(RelProp):
     def relprop(self, R, alpha):
-        print(self.X[1])
-        print("HHHHHHHIIIIIII")
         Z = self.forward(self.X) # matmul
         S = safe_divide(R, Z)
         # print(torch.autograd.grad(Z, self.X, S, retain_graph=True))
