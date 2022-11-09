@@ -552,19 +552,34 @@ class BertIntermediate(nn.Module):
         hidden_states = self.intermediate_act_fn(hidden_states)
         return hidden_states
 
+    def relprop(self, cam, **kwargs):
+        cam = self.intermediate_act_fn.relprop(cam, **kwargs)  # FIXME only ReLU
+        cam = self.dense.relprop(cam, **kwargs)
+        return cam
+
 
 class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
         self.dense = Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.LayerNorm = ExpLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.dropout = ExpDropout(config.hidden_dropout_prob)
+        self.add = Add()
 
     def forward(self, hidden_states, input_tensor):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        add = self.add([hidden_states, input_tensor])
+        hidden_states = self.LayerNorm(add)
         return hidden_states
+    
+    def relprop(self, cam, **kwargs):
+        cam = self.LayerNorm.relprop(cam, **kwargs)
+        (cam1, cam2)= self.add.relprop(cam, **kwargs)
+        cam1 = self.dropout.relprop(cam1, **kwargs)
+        cam1 = self.dense.relprop(cam1, **kwargs)
+
+        return (cam1, cam2)
 
 
 class BertLayer(nn.Module):
