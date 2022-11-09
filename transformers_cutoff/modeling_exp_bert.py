@@ -10,6 +10,7 @@ from .configuration_bert import BertConfig
 from .file_utils import add_start_docstrings
 from .modeling_utils import PreTrainedModel, prune_linear_layer
 
+from transformers.modeling_outputs import BaseModelOutputWithPooling, BaseModelOutput
 from .transexp_orig.layers import *
 
 logger = logging.getLogger(__name__)
@@ -173,13 +174,92 @@ class BertEmbeddings(nn.Module):
             inputs_embeds = self.word_embeddings(input_ids)
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
-
-        embeddings = inputs_embeds + position_embeddings + token_type_embeddings
+        
+        # embeddings = inputs_embeds + position_embeddings + token_type_embeddings
+        embeddings = self.add1([token_type_embeddings, position_embeddings])
+        embeddings = self.add2([embeddings, inputs_embeds])
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
 
+    def relprop(self, cam, **kwargs):
+        cam = self.dropout.relprop(cam, **kwargs)
+        cam = self.LayerNorm.relprop(cam, **kwargs)
 
+        # [inputs_embeds, position_embeddings, token_type_embeddings]
+        (cam) = self.add2.relprop(cam, **kwargs)
+
+        return 
+
+class BertEncoder(nn.Module):
+    def __init__(self, config):
+        super(BertEncoder, self).__init__()
+        self.output_attentions = config.output_attentions
+        self.output_hidden_states = config.output_hidden_states
+        self.layer = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])
+
+    def forward(
+        self,
+        hidden_states,
+        attention_mask=None,
+        head_mask=None,
+        encoder_hidden_states=None,
+        encoder_attention_mask=None,
+    ):
+        all_hidden_states = ()
+        all_attentions = ()
+        for i, layer_module in enumerate(self.layer):
+            if self.output_hidden_states:
+                all_hidden_states = all_hidden_states + (hidden_states,)
+
+            layer_head_mask = head_mask[i] if head_mask is not None else None
+            
+            if getattr(self.config, "gradient_checkpointing", False):
+                def create_custom_forward(module):
+                    def custom_forward(*inputs):
+                        return module(*inputs, self.output_attentions)
+                
+                layer_outputs = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(layer_module),
+                    hidden_states,
+                    attention_mask,
+                    layer_head_mask,
+                )
+            
+            else:
+                layer_outputs = layer_module(
+                    hidden_states, 
+                    attention_mask, 
+                    layer_head_mask,
+                    encoder_hidden_states, # ? output_attentions?
+                    encoder_attention_mask
+                )
+                
+            hidden_states = layer_outputs[0]
+
+            if self.output_attentions:
+                all_attentions = all_attentions + (layer_outputs[1],)
+
+        # Add last layer
+        if self.output_hidden_states:
+            all_hidden_states = all_hidden_states + (hidden_states,)
+
+        outputs = (hidden_states,)
+        if self.output_hidden_states:
+            outputs = outputs + (all_hidden_states,)
+        if self.output_attentions:
+            outputs = outputs + (all_attentions,)
+        # return outputs  # last-layer hidden state, (all hidden states), (all attentions)
+        return BaseModelOutput(
+            last_hidden_state=hidden_states, hidden_states=all_hidden_states, attentions=all_attentions
+        )
+
+    def relprop(self, cam, **kwargs):
+        # assuming output_hidden_states is False
+        for layer_module in reversed(self.layer):
+            cam = layer_module.relprop(cam, **kwargs)
+        return cam
+    
 class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
@@ -381,47 +461,6 @@ class BertLayer(nn.Module):
         layer_output = self.output(intermediate_output, attention_output)
         outputs = (layer_output,) + outputs
         return outputs
-
-
-class BertEncoder(nn.Module):
-    def __init__(self, config):
-        super(BertEncoder, self).__init__()
-        self.output_attentions = config.output_attentions
-        self.output_hidden_states = config.output_hidden_states
-        self.layer = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])
-
-    def forward(
-        self,
-        hidden_states,
-        attention_mask=None,
-        head_mask=None,
-        encoder_hidden_states=None,
-        encoder_attention_mask=None,
-    ):
-        all_hidden_states = ()
-        all_attentions = ()
-        for i, layer_module in enumerate(self.layer):
-            if self.output_hidden_states:
-                all_hidden_states = all_hidden_states + (hidden_states,)
-
-            layer_outputs = layer_module(
-                hidden_states, attention_mask, head_mask[i], encoder_hidden_states, encoder_attention_mask
-            )
-            hidden_states = layer_outputs[0]
-
-            if self.output_attentions:
-                all_attentions = all_attentions + (layer_outputs[1],)
-
-        # Add last layer
-        if self.output_hidden_states:
-            all_hidden_states = all_hidden_states + (hidden_states,)
-
-        outputs = (hidden_states,)
-        if self.output_hidden_states:
-            outputs = outputs + (all_hidden_states,)
-        if self.output_attentions:
-            outputs = outputs + (all_attentions,)
-        return outputs  # last-layer hidden state, (all hidden states), (all attentions)
 
 
 class BertPooler(nn.Module):
