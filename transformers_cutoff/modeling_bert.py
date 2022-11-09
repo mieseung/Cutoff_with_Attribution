@@ -28,7 +28,7 @@ from .configuration_bert import BertConfig
 from .file_utils import add_start_docstrings
 from .modeling_utils import PreTrainedModel, prune_linear_layer
 
-from .transexp_orig.layers import *
+
 logger = logging.getLogger(__name__)
 
 BERT_PRETRAINED_MODEL_ARCHIVE_MAP = {
@@ -149,38 +149,11 @@ def mish(x):
     return x * torch.tanh(nn.functional.softplus(x))
 
 
-ACT2FN = {
-    "relu": ReLU,
-    "tanh": Tanh,
-    "gelu": GELU,
-    # "gelu": gelu,
-    # "relu": torch.nn.functional.relu,
-    "swish": swish,
-    "gelu_new": gelu_new,
-    "mish": mish
-}
+ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu, "swish": swish, "gelu_new": gelu_new, "mish": mish}
 
 
 BertLayerNorm = torch.nn.LayerNorm
 
-def get_activation(activation_string):
-    if activation_string in ACT2FN:
-        return ACT2FN[activation_string]
-    else:
-        raise KeyError("function {} not found in ACT2FN mapping {}".format(activation_string, list(ACT2FN.keys())))
-
-def compute_rollout_attention(all_layer_matrices, start_layer=0):
-    # adding residual consideration
-    num_tokens = all_layer_matrices[0].shape[1]
-    batch_size = all_layer_matrices[0].shape[0]
-    eye = torch.eye(num_tokens).expand(batch_size, num_tokens, num_tokens).to(all_layer_matrices[0].device)
-    all_layer_matrices = [all_layer_matrices[i] + eye for i in range(len(all_layer_matrices))]
-    all_layer_matrices = [all_layer_matrices[i] / all_layer_matrices[i].sum(dim=-1, keepdim=True)
-                          for i in range(len(all_layer_matrices))]
-    joint_attention = all_layer_matrices[start_layer]
-    for i in range(start_layer+1, len(all_layer_matrices)):
-        joint_attention = all_layer_matrices[i].bmm(joint_attention)
-    return joint_attention
 
 class BertEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
@@ -194,13 +167,8 @@ class BertEmbeddings(nn.Module):
 
         # self.LayerNorm is not snake-cased to stick with TensorFlow model variable name and be able to load
         # any TensorFlow checkpoint file
-        self.LayerNorm = ExpLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.dropout = ExpDropout(config.hidden_dropout_prob)
-        
-        self.register_buffer("position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)))
-
-        self.add1 = Add()
-        self.add2 = Add()
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, input_ids=None, token_type_ids=None, position_ids=None, inputs_embeds=None):
         if input_ids is not None:
@@ -210,7 +178,6 @@ class BertEmbeddings(nn.Module):
 
         seq_length = input_shape[1]
         device = input_ids.device if input_ids is not None else inputs_embeds.device
-        
         if position_ids is None:
             position_ids = torch.arange(seq_length, dtype=torch.long, device=device)
             position_ids = position_ids.unsqueeze(0).expand(input_shape)
@@ -222,8 +189,7 @@ class BertEmbeddings(nn.Module):
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
 
-        embeddings = self.add1([token_type_embeddings, position_embeddings])
-        embeddings = self.add2([embeddings, inputs_embeds])
+        embeddings = inputs_embeds + position_embeddings + token_type_embeddings
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
