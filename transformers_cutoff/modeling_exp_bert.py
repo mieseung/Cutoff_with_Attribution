@@ -879,7 +879,10 @@ class BertModel(BertPreTrainedModel):
         .. _`Attention is all you need`:
             https://arxiv.org/abs/1706.03762
 
-        """        
+        """
+        output_attentions = self.config.output_attentions
+        output_hidden_states = self.config.output_hidden_states
+            
         if input_ids is not None and inputs_embeds is not None:
             raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
         elif input_ids is not None:
@@ -991,7 +994,20 @@ class BertModel(BertPreTrainedModel):
         outputs = (sequence_output, pooled_output,) + encoder_outputs[
             1:
         ]  # add hidden_states and attentions if they are here
-        return outputs  # sequence_output, pooled_output, (hidden_states), (attentions)
+        return BaseModelOutputWithPooling(
+            last_hidden_state=sequence_output,
+            pooler_output=pooled_output,
+            hidden_states=encoder_outputs.hidden_states,
+            attentions=encoder_outputs.attentions,
+        )
+        
+    def relprop(self, cam, **kwargs):
+        cam = self.pooler.relprop(cam, **kwargs)
+        # print("111111111111",cam.sum())
+        cam = self.encoder.relprop(cam, **kwargs)
+        # print("222222222222222", cam.sum())
+        # print("conservation: ", cam.sum())
+        return cam
 
     def get_embedding_output(self, input_ids, token_type_ids=None, position_ids=None):
         assert input_ids is not None
