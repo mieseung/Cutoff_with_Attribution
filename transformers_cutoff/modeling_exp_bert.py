@@ -516,15 +516,26 @@ class BertSelfAttention(nn.Module):
 class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.dense = Linear(config.hidden_size, config.hidden_size)
+        self.LayerNorm = ExpLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.dropout = ExpDropout(config.hidden_dropout_prob)
+        self.add = Add()
 
     def forward(self, hidden_states, input_tensor):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        add = self.add([hidden_states, input_tensor])
+        hidden_states = self.LayerNorm(add)
         return hidden_states
+    
+    def relprop(self, cam, **kwargs):
+        cam = self.LayerNorm.relprop(cam, **kwargs)
+        # [hidden_states, input_tensor]
+        (cam1, cam2) = self.add.relprop(cam, **kwargs)
+        cam1 = self.dropout.relprop(cam1, **kwargs)
+        cam1 = self.dense.relprop(cam1, **kwargs)
+
+        return (cam1, cam2)
 
 
 class BertIntermediate(nn.Module):
