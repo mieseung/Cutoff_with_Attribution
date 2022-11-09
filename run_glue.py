@@ -239,8 +239,7 @@ def main():
             orig_task_name = "CoLA"
         
         model = AutoModelForSequenceClassification.from_pretrained(
-            # f"/home/jovyan/work/checkpoint/{orig_task_name}/{checkpoint_aug_type}/",
-            "/home/jovyan/work/symoon/Cutoff_with_Attribution/results_span/QNLI-roberta_base-cutoff/checkpoint-29000-span",
+            f"/home/jovyan/work/checkpoint/{orig_task_name}/{checkpoint_aug_type}/",
             config = config
         )
         test_dataset = test_dataset_class(data_args, tokenizer = tokenizer)
