@@ -115,7 +115,6 @@ class RobertaModel(BertModel):
 
     def __init__(self, config):
         super().__init__(config)
-
         self.embeddings = RobertaEmbeddings(config)
         self.init_weights()
 

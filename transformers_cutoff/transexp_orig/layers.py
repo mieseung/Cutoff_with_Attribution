@@ -14,7 +14,10 @@ def safe_divide(a, b):
 
 
 def forward_hook(self, input, output):
-    if type(input[0]) in (list, tuple):
+    print(">>>>>>forward hook!")
+    print(input[0])
+    if type(input[0]) in (list, tuple): 
+        print(">>>>>>>>>1")
         self.X = []
         for i in input[0]:
             x = i.detach()
@@ -39,7 +42,8 @@ class RelProp(nn.Module):
         self.register_forward_hook(forward_hook)
 
     def gradprop(self, Z, X, S):
-        C = torch.autograd.grad(Z, X, S, retain_graph=True)
+        C = torch.autograd.grad(Z, X, S, retain_graph=True, allow_unused=True)
+        print(C)
         return C
 
     def relprop(self, R, alpha):
@@ -48,9 +52,13 @@ class RelProp(nn.Module):
 
 class RelPropSimple(RelProp):
     def relprop(self, R, alpha):
-        Z = self.forward(self.X)
+        print(self.X[1])
+        print("HHHHHHHIIIIIII")
+        Z = self.forward(self.X) # matmul
         S = safe_divide(R, Z)
-        C = self.gradprop(Z, self.X, S)
+        # print(torch.autograd.grad(Z, self.X, S, retain_graph=True))
+        # C = self.gradprop(Z, self.X, S)
+        C = torch.autograd.grad(Z, self.X, S, retain_graph=True)
 
         if torch.is_tensor(self.X) == False:
             outputs = []
