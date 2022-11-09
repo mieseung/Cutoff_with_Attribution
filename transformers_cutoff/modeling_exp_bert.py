@@ -259,6 +259,36 @@ class BertEncoder(nn.Module):
         for layer_module in reversed(self.layer):
             cam = layer_module.relprop(cam, **kwargs)
         return cam
+
+class BertPooler(nn.Module):
+    def __init__(self, config):
+        super(BertPooler, self).__init__()
+        self.dense = Linear(config.hidden_size, config.hidden_size)
+        self.activation = Tanh()
+        self.pool = IndexSelect()
+        
+    def forward(self, hidden_states):
+        # We "pool" the model by simply taking the hidden state corresponding
+        # to the first token.
+        self._seq_size = hidden_states.shape[1]
+        
+        # first_token_tensor = hidden_states[:, 0]
+        first_token_tensor = self.pool(hidden_states, 1, torch.tensor(0, device=hidden_states.device))
+        first_token_tensor = first_token_tensor.squeeze(1)
+        pooled_output = self.dense(first_token_tensor)
+        pooled_output = self.activation(pooled_output)
+        return pooled_output
+    
+    def relprop(self, cam, **kwargs):
+        cam = self.activation.relprop(cam, **kwargs)
+        #print(cam.sum())
+        cam = self.dense.relprop(cam, **kwargs)
+        #print(cam.sum())
+        cam = cam.unsqueeze(1)
+        cam = self.pool.relprop(cam, **kwargs)
+        #print(cam.sum())
+
+        return cam
     
 class BertSelfAttention(nn.Module):
     def __init__(self, config):
@@ -461,22 +491,6 @@ class BertLayer(nn.Module):
         layer_output = self.output(intermediate_output, attention_output)
         outputs = (layer_output,) + outputs
         return outputs
-
-
-class BertPooler(nn.Module):
-    def __init__(self, config):
-        super(BertPooler, self).__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.activation = nn.Tanh()
-
-    def forward(self, hidden_states):
-        # We "pool" the model by simply taking the hidden state corresponding
-        # to the first token.
-        first_token_tensor = hidden_states[:, 0]
-        pooled_output = self.dense(first_token_tensor)
-        pooled_output = self.activation(pooled_output)
-        return pooled_output
-
 
 class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
