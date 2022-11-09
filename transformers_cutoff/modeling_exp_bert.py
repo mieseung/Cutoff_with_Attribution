@@ -1,21 +1,3 @@
-# coding=utf-8
-# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""PyTorch BERT model. """
-
-
 import logging
 import math
 import os
@@ -28,6 +10,7 @@ from .configuration_bert import BertConfig
 from .file_utils import add_start_docstrings
 from .modeling_utils import PreTrainedModel, prune_linear_layer
 
+from .transexp_orig.layers import *
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +38,36 @@ BERT_PRETRAINED_MODEL_ARCHIVE_MAP = {
     "bert-base-finnish-uncased-v1": "https://s3.amazonaws.com/models.huggingface.co/bert/TurkuNLP/bert-base-finnish-uncased-v1/pytorch_model.bin",
 }
 
+ACT2FN = {
+    "relu": ReLU,
+    "tanh": Tanh,
+    "gelu": GELU,
+}
+
+BertLayerNorm = torch.nn.LayerNorm
+
+def gelu(x):
+    """ Original Implementation of the gelu activation function in Google Bert repo when initially created.
+        For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
+        0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+        Also see https://arxiv.org/abs/1606.08415
+    """
+    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
+
+
+def gelu_new(x):
+    """ Implementation of the gelu activation function currently in Google Bert repo (identical to OpenAI GPT).
+        Also see https://arxiv.org/abs/1606.08415
+    """
+    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+
+
+def swish(x):
+    return x * torch.sigmoid(x)
+
+
+def mish(x):
+    return x * torch.tanh(nn.functional.softplus(x))
 
 def load_tf_weights_in_bert(model, config, tf_checkpoint_path):
     """ Load tf checkpoints in a pytorch model.
@@ -124,37 +137,6 @@ def load_tf_weights_in_bert(model, config, tf_checkpoint_path):
         pointer.data = torch.from_numpy(array)
     return model
 
-
-def gelu(x):
-    """ Original Implementation of the gelu activation function in Google Bert repo when initially created.
-        For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
-        0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
-        Also see https://arxiv.org/abs/1606.08415
-    """
-    return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-
-
-def gelu_new(x):
-    """ Implementation of the gelu activation function currently in Google Bert repo (identical to OpenAI GPT).
-        Also see https://arxiv.org/abs/1606.08415
-    """
-    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
-
-
-def swish(x):
-    return x * torch.sigmoid(x)
-
-
-def mish(x):
-    return x * torch.tanh(nn.functional.softplus(x))
-
-
-ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu, "swish": swish, "gelu_new": gelu_new, "mish": mish}
-
-
-BertLayerNorm = torch.nn.LayerNorm
-
-
 class BertEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
     """
@@ -169,6 +151,9 @@ class BertEmbeddings(nn.Module):
         # any TensorFlow checkpoint file
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        
+        self.add1 = Add()
+        self.add2 = Add()
 
     def forward(self, input_ids=None, token_type_ids=None, position_ids=None, inputs_embeds=None):
         if input_ids is not None:
@@ -352,7 +337,7 @@ class BertIntermediate(nn.Module):
 class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
-        self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
+        self.dense = Linear(config.intermediate_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
