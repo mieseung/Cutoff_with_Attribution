@@ -678,7 +678,8 @@ class Trainer:
 
     def generate_token_exp_cutoff_embedding(self, input_ids, embeds, masks, input_lens):
         # tensor size
-        # embeds : [16, 128, 768]
+        # input_ids : [16, 128]
+        # embeds : 16 * [128, 768]
         # masks : [16, 128]
         
         input_embeds = []
@@ -693,9 +694,12 @@ class Trainer:
             cutoff_embed = embeds[i]
             cutoff_mask = masks[i]
             
-            exp1 = self.exp_generator.generate_LRP(
-                input_ids = input_ids,
-                attention_mask = masks,
+            input_ids_trans = input_ids[i].view((1, 128))
+            masks_trans = masks[i].view((1, 128))
+            
+            expl = self.exp_generator.generate_LRP(
+                input_ids = input_ids_trans,
+                attention_mask = masks_trans,
                 start_layer=0
             )[0]
 

@@ -8,11 +8,11 @@ __all__ = ['forward_hook', 'Clone', 'Add', 'Cat', 'ReLU', 'GELU', 'ExpDropout', 
 
 
 def safe_divide(a, b):
+    # TODO
+    # a : [1, 128, 768]
+    # b : [1, 768]
     den = b.clamp(min=1e-9) + b.clamp(max=1e-9)
     den = den + den.eq(0).type(den.type()) * 1e-9
-    print(a.shape)
-    print(b.shape)
-    print(adfs)
     return a / den * b.ne(0).type(b.type())
 
 
