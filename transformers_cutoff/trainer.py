@@ -207,6 +207,8 @@ class Trainer:
         self.eval_history = []
         self.eval_header = None
         self.eval_key_axis = None
+        self.exp_generator = Generator(model)
+        
         if not is_tensorboard_available():
             logger.warning(
                 "You are instantiating a Trainer but Tensorboard is not installed. You should consider installing it."
@@ -674,18 +676,28 @@ class Trainer:
 
         return input_embeds, input_masks
 
-    def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens):
-        # TODO
+    def generate_token_exp_cutoff_embedding(self, input_ids, embeds, masks, input_lens):
+        # tensor size
+        # embeds : [16, 128, 768]
+        # masks : [16, 128]
+        
         input_embeds = []
         input_masks = []
         
         for i in range(embeds.shape[0]):                                            # embeds.shape[0] == batch_size
+            
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
             zero_index = torch.randint(input_lens[i], (cutoff_length,))
             
             # 0으로 대체할 지점의 index를 랜덤으로 생성
             cutoff_embed = embeds[i]
             cutoff_mask = masks[i]
+            
+            exp1 = self.exp_generator.generate_LRP(
+                input_ids = input_ids,
+                attention_mask = masks,
+                start_layer=0
+            )[0]
 
             tmp_mask = torch.ones(cutoff_embed.shape[0], ).to(self.args.device)
             for ind in zero_index:
@@ -728,7 +740,6 @@ class Trainer:
     def _training_step_with_token_exp_cutoff(
          self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer
     ) -> float:
-        # TODO : use transformer explainability
         
         model.train()
         for k, v in inputs.items():
@@ -738,24 +749,15 @@ class Trainer:
         loss = 0.0
 
         assert model.__class__ is RobertaForSequenceClassification
-        input_ids = inputs['input_ids']
+        input_ids = inputs['input_ids'] # [16, 128]
         token_type_ids = inputs.get('token_type_ids', None)
-        labels = inputs.get('labels', None)
-        embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids)
-        masks = inputs['attention_mask']
-        
-        print("Exp generator!")
-        
-        exp_generator = Generator(model)
-        exp1 = exp_generator.generate_LRP(
-            input_ids = input_ids,
-            attention_mask = masks,
-            start_layer=0
-        )[0]
+        labels = inputs.get('labels', None) # 16
+        embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids) # 16 * [128, 768]
+        masks = inputs['attention_mask'] # [16, 128]
         
         input_lens = torch.sum(masks, dim=1)
 
-        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens)
+        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(input_ids, embeds, masks, input_lens)
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
                                                                 labels=labels)

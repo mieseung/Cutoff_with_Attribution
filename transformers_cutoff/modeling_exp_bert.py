@@ -450,6 +450,7 @@ class BertSelfAttention(nn.Module):
         attention_probs = self.softmax(attention_scores)
         
         self.save_attn(attention_probs)
+        # attention_probs.clone().detach().requires_grad_(True)
         attention_probs.register_hook(self.save_attn_gradients)
          
         # This is actually dropping out entire tokens to attend to, which might
