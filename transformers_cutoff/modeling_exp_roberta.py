@@ -336,6 +336,7 @@ class RelProp(nn.Module):
         self.register_forward_hook(forward_hook)
 
     def gradprop(self, Z, X, S):
+        # print(Z.shape, X.shape, S.shape)
         C = torch.autograd.grad(Z, X, S, retain_graph=True)
         return C
 
@@ -351,11 +352,16 @@ class ExpLinear(nn.Linear, RelProp):
         nx = torch.clamp(self.X, max=0)
 
         def f(w1, w2, x1, x2):
+            # print("this is ExpLinear")
             Z1 = F.linear(x1, w1)
             Z2 = F.linear(x2, w2)
             S1 = safe_divide(R, Z1 + Z2)
             S2 = safe_divide(R, Z1 + Z2)
+            # print("===Z1===")
+            # print(Z1.shape, x1.shape, S1.shape)
             C1 = x1 * self.gradprop(Z1, x1, S1)[0]
+            # print("===Z2===")
+            # print(Z2.shape, x2.shape, S2.shape)
             C2 = x2 * self.gradprop(Z2, x2, S2)[0]
 
             return C1 + C2

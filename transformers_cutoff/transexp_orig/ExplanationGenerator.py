@@ -45,7 +45,7 @@ class Generator:
         self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
 
         cams = []
-        blocks = self.model.bert.encoder.layer
+        blocks = self.model.roberta.encoder.layer
         for blk in blocks:
             grad = blk.attention.self.get_attn_gradients()
             cam = blk.attention.self.get_attn_cam()

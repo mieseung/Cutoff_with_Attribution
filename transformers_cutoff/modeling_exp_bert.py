@@ -274,19 +274,30 @@ class BertPooler(nn.Module):
         self._seq_size = hidden_states.shape[1]
         
         # first_token_tensor = hidden_states[:, 0]
-        first_token_tensor = self.pool(hidden_states, 1, torch.tensor(0, device=hidden_states.device))
-        first_token_tensor = first_token_tensor.squeeze(1)
+        # print("+++ hidden state tensor +++")
+        # print(hidden_states.shape)
+        first_token_tensor = hidden_states #[:, 0]
+        # first_token_tensor = self.pool(hidden_states, 1, torch.tensor(0, device=hidden_states.device))
+        # print("+++ first token tensor +++")
+        # print(first_token_tensor.shape)
+        # first_token_tensor = first_token_tensor.squeeze(1)
+        # print(first_token_tensor.shape)
+
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
     
     def relprop(self, cam, **kwargs):
+        # print("++Pooling relprop cam+++")
+        # print(cam.shape)
         cam = self.activation.relprop(cam, **kwargs)
+        # print("++Pooling relprop cam after activation+++")
+        # print(cam.shape)
         #print(cam.sum())
         cam = self.dense.relprop(cam, **kwargs)
         #print(cam.sum())
-        cam = cam.unsqueeze(1)
-        cam = self.pool.relprop(cam, **kwargs)
+        # cam = cam.unsqueeze(1)
+        # cam = self.pool.relprop(cam, **kwargs)
         #print(cam.sum())
 
         return cam
@@ -543,7 +554,7 @@ class BertSelfOutput(nn.Module):
 class BertIntermediate(nn.Module):
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
-        self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
+        self.dense = Linear(config.hidden_size, config.intermediate_size)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]()
         else:
