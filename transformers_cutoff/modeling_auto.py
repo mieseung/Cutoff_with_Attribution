@@ -109,9 +109,13 @@ from .modeling_roberta import (
     RobertaForMaskedLM,
     RobertaForMultipleChoice,
     RobertaForQuestionAnswering,
-    RobertaForSequenceClassification,
+    # RobertaForSequenceClassification,
     RobertaForTokenClassification,
-    RobertaModel,
+    # RobertaModel,
+)
+from .modeling_exp_roberta import (
+    RobertaForSequenceClassification,
+    RobertaModel
 )
 # from .modeling_t5 import T5_PRETRAINED_MODEL_ARCHIVE_MAP, T5ForConditionalGeneration, T5Model
 # from .modeling_transfo_xl import TRANSFO_XL_PRETRAINED_MODEL_ARCHIVE_MAP, TransfoXLLMHeadModel, TransfoXLModel

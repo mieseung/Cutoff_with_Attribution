@@ -10,7 +10,7 @@ export BATCH_SIZE=$3
 export CUTOFF_TYPE=$4
 
 CUDA_VISIBLE_DEVICES=$NUM_GPU \
-python run_glue.py \
+python run_glue_ddp.py \
   --model_name_or_path roberta-base \
   --data_dir $GLUE_DIR/$TASK_NAME \
   --task_name $TASK_NAME \

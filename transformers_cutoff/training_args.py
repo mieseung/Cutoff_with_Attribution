@@ -153,12 +153,16 @@ class TrainingArguments:
             # If you only want to use a specific subset of GPUs use `CUDA_VISIBLE_DEVICES=0`
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             n_gpu = torch.cuda.device_count()
+            print()
+            print("+++n_gpu+++")
+            print(n_gpu)
+            print()
         else:
             # Here, we'll use torch.distributed.
             # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
             torch.distributed.init_process_group(backend="nccl")
             device = torch.device("cuda", self.local_rank)
-            n_gpu = 1
+            n_gpu = 2
         return device, n_gpu
 
     @property
