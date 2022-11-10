@@ -8,7 +8,7 @@ def compute_rollout_attention(all_layer_matrices, start_layer=0):
     # adding residual consideration- code adapted from https://github.com/samiraabnar/attention_flow
     num_tokens = all_layer_matrices[0].shape[1]
     batch_size = all_layer_matrices[0].shape[0]
-    eye = torch.eye(num_tokens).expand(batch_size, num_tokens, num_tokens).to(all_layer_matrices[0].device)
+    eye = torch.eye(num_tokens).expand(batch_size, num_tokens, num_tokens).cuda() #.to(all_layer_matrices[0].device)
     all_layer_matrices = [all_layer_matrices[i] + eye for i in range(len(all_layer_matrices))]
     matrices_aug = [all_layer_matrices[i] / all_layer_matrices[i].sum(dim=-1, keepdim=True)
                           for i in range(len(all_layer_matrices))]
@@ -21,6 +21,7 @@ class Generator:
     def __init__(self, model):
         self.model = model
         self.model.eval()
+        self.model.zero_grad()
 
     def forward(self, input_ids, attention_mask):
         return self.model(input_ids, attention_mask)
@@ -42,7 +43,7 @@ class Generator:
         self.model.zero_grad()
         one_hot.backward(retain_graph=True)
 
-        self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
+        self.model.relprop(torch.tensor(one_hot_vector).cuda(), **kwargs)#.to(input_ids.device)
 
         cams = []
         blocks = self.model.roberta.encoder.layer
@@ -75,7 +76,7 @@ class Generator:
         self.model.zero_grad()
         one_hot.backward(retain_graph=True)
 
-        self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
+        self.model.relprop(torch.tensor(one_hot_vector).cuda(), **kwargs) #.to(input_ids.device)
 
         cam = self.model.bert.encoder.layer[-1].attention.self.get_attn_cam()[0]
         cam = cam.clamp(min=0).mean(dim=0).unsqueeze(0)
@@ -99,7 +100,7 @@ class Generator:
         self.model.zero_grad()
         one_hot.backward(retain_graph=True)
 
-        cam = self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
+        cam = self.model.relprop(torch.tensor(one_hot_vector).cuda(), **kwargs) #.to(input_ids.device)
         cam = cam.sum(dim=2)
         cam[:, 0] = 0
         return cam
@@ -141,7 +142,7 @@ class Generator:
         self.model.zero_grad()
         one_hot.backward(retain_graph=True)
 
-        self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
+        self.model.relprop(torch.tensor(one_hot_vector).cuda(), **kwargs) #.to(input_ids.device)
 
         cam = self.model.bert.encoder.layer[-1].attention.self.get_attn()
         grad = self.model.bert.encoder.layer[-1].attention.self.get_attn_gradients()

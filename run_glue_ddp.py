@@ -11,10 +11,12 @@ from typing import Dict, Optional
 import glob
 
 import numpy as np
+import torch
+from torch import nn
 
-from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
+from transformers_cutoff import RobertaForSequenceClassification, AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
 from transformers import GlueDataTrainingArguments as DataTrainingArguments
-from transformers import (
+from transformers_cutoff import (
     HfArgumentParser,
     Trainer,
     TrainingArguments,
@@ -25,6 +27,7 @@ from transformers import (
 )
 
 from utils import report_results
+from collections import OrderedDict
 
 
 @dataclass
@@ -51,6 +54,9 @@ def main():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
+    torch.backends.cudnn.benchmark = True
 
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
 
@@ -130,7 +136,16 @@ def main():
     )
 
     pretrained_state_dict = {k: v for k, v in mnli_model.state_dict().items() if k != 'classifier.out_proj.bias' and k != 'classifier.out_proj.weight'}
-    model.load_state_dict(pretrained_state_dict, strict=False)
+    
+    temp_state_dict = OrderedDict()
+    
+    for i, j in pretrained_state_dict.items():
+        name = i.replace("exp_", "")
+        temp_state_dict[name] = j
+    
+    model.load_state_dict(temp_state_dict, strict=False)
+    # model = nn.DataParallel(model)
+    # model = model.cuda()
 
     # Get datasets
     train_dataset_class = GlueDataset
@@ -213,8 +228,8 @@ def main():
 
         for checkpoint in all_checkpoints:
             step = int(checkpoint.split('-')[-1])
-            model.load_pretrained(checkpoint)
-            model.to(training_args.device)
+            model.module.load_pretrained(checkpoint)
+            # model.to(training_args.device)
             step_result = [step]
             for eval_dataset in eval_datasets:
                 trainer.global_step = step

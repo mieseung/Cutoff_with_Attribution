@@ -188,7 +188,8 @@ class Trainer:
         """
         
         #! original code starts from here
-        self.model = model.to(args.device)
+        # self.model = model.to(args.device)
+        self.model = model.cuda()
         self.args = args
         if data_collator is not None:
             self.data_collator = data_collator
@@ -199,6 +200,10 @@ class Trainer:
         self.compute_metrics = compute_metrics
         self.prediction_loss_only = prediction_loss_only
         self.optimizers = optimizers
+        print()
+        print("+++optimizer+++")
+        print(optimizers)
+        print()
         # if tb_writer is not None:
         #     self.tb_writer = tb_writer
         # elif is_tensorboard_available() and self.is_world_master():
@@ -248,8 +253,8 @@ class Trainer:
             collate_fn=self.data_collator.collate_batch,
         )
 
-        if is_tpu_available():
-            data_loader = pl.ParallelLoader(data_loader, [self.args.device]).per_device_loader(self.args.device)
+        # if is_tpu_available():
+        #     data_loader = pl.ParallelLoader(data_loader, [self.args.device]).per_device_loader(self.args.device)
 
         return data_loader
 
@@ -489,6 +494,7 @@ class Trainer:
 
             epoch_iterator = tqdm(train_dataloader, desc=f"Epoch-{epoch}", disable=not self.is_local_master())
             for step, inputs in enumerate(epoch_iterator):
+                torch.cuda.empty_cache()
                 
                 # Since the batch size is 16, there are 16 data in each iteration
                 batch_data_segment = self.train_dataset.examples[step:step+16]
@@ -561,6 +567,9 @@ class Trainer:
                 if self.args.max_steps > 0 and self.global_step > self.args.max_steps:
                     epoch_iterator.close()
                     break
+
+                torch.cuda.empty_cache()
+                
             if self.args.max_steps > 0 and self.global_step > self.args.max_steps:
                 train_iterator.close()
                 break
@@ -617,8 +626,8 @@ class Trainer:
     ) -> float:
         model.train()
         for k, v in inputs.items():
-            inputs[k] = v.to(self.args.device)
-
+            # inputs[k] = v.to(self.args.device)
+            inputs[k] = v.cuda()
         outputs = model(**inputs)
         loss = outputs[0]  # model outputs are always tuple in transformers (see doc)
 
@@ -637,10 +646,10 @@ class Trainer:
             # slicing을 사용해 그 부분을 아예 zeros로 대체
             cutoff_embed = torch.cat((embeds[i][:start],
                                       torch.zeros([cutoff_length, embeds.shape[-1]],
-                                                  dtype=torch.float).to(self.args.device),
+                                                  dtype=torch.float).cuda(), #to(self.args.device),
                                       embeds[i][start + cutoff_length:]), dim=0)
             cutoff_mask = torch.cat((masks[i][:start],
-                                     torch.zeros([cutoff_length], dtype=torch.long).to(self.args.device),
+                                     torch.zeros([cutoff_length], dtype=torch.long).cuda(), #.to(self.args.device),
                                      masks[i][start + cutoff_length:]), dim=0)
             input_embeds.append(cutoff_embed)
             input_masks.append(cutoff_mask)
@@ -660,7 +669,7 @@ class Trainer:
             cutoff_embed = embeds[i]
             cutoff_mask = masks[i]
 
-            tmp_mask = torch.ones(cutoff_embed.shape[0], ).to(self.args.device)
+            tmp_mask = torch.ones(cutoff_embed.shape[0], ).cuda() #.to(self.args.device)
             for ind in zero_index:
                 tmp_mask[ind] = 0
             # 설정된 index 위치를 0으로 대체
@@ -697,13 +706,13 @@ class Trainer:
             input_ids_trans = input_ids[i].view((1, 128))
             masks_trans = masks[i].view((1, 128))
             
-            expl = self.exp_generator.generate_LRP(
-                input_ids = input_ids_trans,
-                attention_mask = masks_trans,
-                start_layer=0
-            )[0]
+            # expl = self.exp_generator.generate_LRP(
+            #     input_ids = input_ids_trans,
+            #     attention_mask = masks_trans,
+            #     start_layer=0
+            # )[0]
 
-            tmp_mask = torch.ones(cutoff_embed.shape[0], ).to(self.args.device)
+            tmp_mask = torch.ones(cutoff_embed.shape[0], ).cuda() #.to(self.args.device)
             for ind in zero_index:
                 tmp_mask[ind] = 0
 
@@ -728,7 +737,7 @@ class Trainer:
             cutoff_length = int(cutoff_embed.shape[1] * self.args.aug_cutoff_ratio)
             zero_index = torch.randint(cutoff_embed.shape[1], (cutoff_length,))
 
-            tmp_mask = torch.ones(cutoff_embed.shape[1], ).to(self.args.device)
+            tmp_mask = torch.ones(cutoff_embed.shape[1], ).cuda() #.to(self.args.device)
             for ind in zero_index:
                 tmp_mask[ind] = 0.
 
@@ -747,22 +756,22 @@ class Trainer:
         
         model.train()
         for k, v in inputs.items():
-            inputs[k] = v.to(self.args.device)
+            inputs[k] = v.cuda() #.to(self.args.device)
 
         ori_outputs = model(**inputs)
         loss = 0.0
 
-        assert model.__class__ is RobertaForSequenceClassification
+        assert model.module.__class__ is RobertaForSequenceClassification
         input_ids = inputs['input_ids'] # [16, 128]
         token_type_ids = inputs.get('token_type_ids', None)
         labels = inputs.get('labels', None) # 16
-        embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids) # 16 * [128, 768]
+        embeds = model.module.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids) # 16 * [128, 768]
         masks = inputs['attention_mask'] # [16, 128]
         
         input_lens = torch.sum(masks, dim=1)
 
         input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(input_ids, embeds, masks, input_lens)
-        cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
+        cutoff_outputs = model.module.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
                                                                 labels=labels)
 
@@ -770,7 +779,7 @@ class Trainer:
             loss += self.args.aug_ce_loss * cutoff_outputs[0]
 
         if self.args.aug_js_loss > 0:
-            assert self.args.n_gpu == 1
+            # assert self.args.n_gpu == 1
             ori_logits = ori_outputs[1]
             aug_logits = cutoff_outputs[1]
             p = torch.softmax(ori_logits + 1e-10, dim=1)
@@ -786,7 +795,7 @@ class Trainer:
     ) -> float:
         model.train()
         for k, v in inputs.items():
-            inputs[k] = v.to(self.args.device)
+            inputs[k] = v.cuda() #.to(self.args.device)
 
         ori_outputs = model(**inputs)
         loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
@@ -805,14 +814,14 @@ class Trainer:
         input_masks = []
         for i in range(embeds.shape[0]):
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
-            start = int(torch.rand(1).to(self.args.device) * (input_lens[i] - cutoff_length))
+            start = int(torch.rand(1).cuda() * (input_lens[i] - cutoff_length)) ##! .to(self.args.device) 바꿈
             # print(input_lens[i], cutoff_length, start)
             cutoff_embed = torch.cat((embeds[i][:start],
                                       torch.zeros([cutoff_length, embeds.shape[-1]],
-                                                  dtype=torch.float).to(self.args.device),
+                                                  dtype=torch.float).cuda(), #.to(self.args.device),
                                       embeds[i][start + cutoff_length:]), dim=0)
             cutoff_mask = torch.cat((masks[i][:start],
-                                     torch.zeros([cutoff_length], dtype=torch.long).to(self.args.device),
+                                     torch.zeros([cutoff_length], dtype=torch.long).cuda(), #.to(self.args.device),
                                      masks[i][start + cutoff_length:]), dim=0)
             input_embeds.append(cutoff_embed)
             input_masks.append(cutoff_mask)
@@ -843,7 +852,7 @@ class Trainer:
     ) -> float:
         model.train()
         for k, v in inputs.items():
-            inputs[k] = v.to(self.args.device)
+            inputs[k] = v.cuda() #.to(self.args.device)
 
         ori_outputs = model(**inputs)
         loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
@@ -881,7 +890,7 @@ class Trainer:
     ) -> float:
         model.train()
         for k, v in inputs.items():
-            inputs[k] = v.to(self.args.device)
+            inputs[k] = v.cuda() #.to(self.args.device)
 
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
@@ -1113,7 +1122,7 @@ class Trainer:
             has_labels = any(inputs.get(k) is not None for k in ["labels", "lm_labels", "masked_lm_labels"])
 
             for k, v in inputs.items():
-                inputs[k] = v.to(self.args.device)
+                inputs[k] = v.cuda() #.to(self.args.device)
 
             with torch.no_grad():
                 outputs = model(**inputs)

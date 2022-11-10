@@ -72,7 +72,7 @@ class RelPropSimple(RelProp):
 class AddEye(RelPropSimple):
     # input of shape B, C, seq_len, seq_len
     def forward(self, input):
-        return input + torch.eye(input.shape[2]).expand_as(input).to(input.device)
+        return input + torch.eye(input.shape[2]).expand_as(input).cuda() #.to(input.device)
 
 class ReLU(nn.ReLU, RelProp):
     # print("+++This is ReLU+++")

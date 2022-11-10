@@ -1,13 +1,13 @@
 from transformers import BertPreTrainedModel
 from transformers.utils import logging
 from transformers.modeling_outputs import SequenceClassifierOutput
-from transexp_orig.layers import *
-from transexp_orig.BERT import BertModel
+from .layers import *
+from .BERT import BertModel
 from torch.nn import CrossEntropyLoss, MSELoss
 import torch.nn as nn
 from typing import List, Any
 import torch
-from transexp_orig.model_utils import PaddedSequence
+from .model_utils import PaddedSequence
 
 
 class BertForSequenceClassification(BertPreTrainedModel):
