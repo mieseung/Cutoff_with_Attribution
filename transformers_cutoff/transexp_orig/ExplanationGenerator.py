@@ -48,7 +48,9 @@ class Generator:
         blocks = self.model.roberta.encoder.layer
         for blk in blocks:
             grad = blk.attention.self.get_attn_gradients()
+            # blk.attention.self.remove_attn_gradients()
             cam = blk.attention.self.get_attn_cam()
+            # blk.attention.self.remove_attn_cam()
             cam = cam[0].reshape(-1, cam.shape[-1], cam.shape[-1])
             grad = grad[0].reshape(-1, grad.shape[-1], grad.shape[-1])
             cam = grad * cam

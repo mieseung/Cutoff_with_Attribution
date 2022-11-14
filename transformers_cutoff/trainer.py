@@ -7,6 +7,7 @@ import os
 import random
 import re
 import shutil
+import tracemalloc
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -748,6 +749,8 @@ class Trainer:
         model.train()
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
+        
+        inputs.pop("example_index")
 
         ori_outputs = model(**inputs)
         loss = 0.0
@@ -882,6 +885,8 @@ class Trainer:
         model.train()
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
+        
+        inputs.pop("example_index")
 
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
@@ -1114,6 +1119,8 @@ class Trainer:
 
             for k, v in inputs.items():
                 inputs[k] = v.to(self.args.device)
+                
+            inputs.pop("example_index")
 
             with torch.no_grad():
                 outputs = model(**inputs)

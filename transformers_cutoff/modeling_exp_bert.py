@@ -406,11 +406,17 @@ class BertSelfAttention(nn.Module):
     def get_attn_cam(self):
         return self.attn_cam
 
+    def remove_attn_cam(self):
+        del self.attn_cam
+
     def save_attn_gradients(self, attn_gradients):
         self.attn_gradients = attn_gradients
 
     def get_attn_gradients(self):
         return self.attn_gradients
+
+    def remove_attn_gradients(self):
+        del self.attn_gradients
 
     def transpose_for_scores(self, x):
         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
@@ -519,7 +525,9 @@ class BertSelfAttention(nn.Module):
 
         # value
         cam2 = self.transpose_for_scores_relprop(cam2)
+        print(cam2.shape)
         cam2 = self.value.relprop(cam2, **kwargs)
+        print(cam2.shape)
 
         cam = self.clone.relprop((cam1_1, cam1_2, cam2), **kwargs)
 
