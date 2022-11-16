@@ -209,11 +209,15 @@ if is_torch_available():
     from .modeling_roberta import (
         RobertaForMaskedLM,
         RobertaModel,
-        RobertaForSequenceClassification,
+        # RobertaForSequenceClassification,
         RobertaForMultipleChoice,
         RobertaForTokenClassification,
         RobertaForQuestionAnswering,
         ROBERTA_PRETRAINED_MODEL_ARCHIVE_MAP,
+    )
+    
+    from .modeling_exp_roberta import (
+        RobertaForSequenceClassification
     )
     # from .modeling_distilbert import (
     #     DistilBertPreTrainedModel,

@@ -7,6 +7,7 @@ import os
 import random
 import re
 import shutil
+import tracemalloc
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -29,7 +30,9 @@ from .trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction, PredictionOutp
 from .training_args import TrainingArguments, is_tpu_available
 from utils import report_results
 
-from .modeling_roberta import RobertaForMaskedLM, RobertaForSequenceClassification
+from .modeling_exp_roberta import RobertaForMaskedLM, RobertaForSequenceClassification
+
+from .transexp_orig.ExplanationGenerator import Generator
 
 try:
     from apex import amp
@@ -184,6 +187,8 @@ class Trainer:
             prediction_loss_only:
                 (Optional) in evaluation and prediction, only return the loss
         """
+        
+        #! original code starts from here
         self.model = model.to(args.device)
         self.args = args
         if data_collator is not None:
@@ -203,6 +208,8 @@ class Trainer:
         self.eval_history = []
         self.eval_header = None
         self.eval_key_axis = None
+        self.exp_generator = Generator(model)
+        
         if not is_tensorboard_available():
             logger.warning(
                 "You are instantiating a Trainer but Tensorboard is not installed. You should consider installing it."
@@ -483,7 +490,10 @@ class Trainer:
 
             epoch_iterator = tqdm(train_dataloader, desc=f"Epoch-{epoch}", disable=not self.is_local_master())
             for step, inputs in enumerate(epoch_iterator):
-
+                
+                # Since the batch size is 16, there are 16 data in each iteration
+                batch_data_segment = self.train_dataset.examples[step:step+16]
+                
                 # Skip past any already trained steps if resuming training
                 if steps_trained_in_current_epoch > 0:
                     steps_trained_in_current_epoch -= 1
@@ -496,6 +506,8 @@ class Trainer:
                         step_loss = self._training_step_with_token_cutoff(model, inputs, optimizer)
                     elif self.args.aug_type == 'dim_cutoff':
                         step_loss = self._training_step_with_dim_cutoff(model, inputs, optimizer)
+                    elif self.args.aug_type == 'token_exp_cutoff':
+                        step_loss = self._training_step_with_token_exp_cutoff(model, inputs, optimizer)
                     else:
                         raise NotImplementedError
                 else:
@@ -665,6 +677,48 @@ class Trainer:
 
         return input_embeds, input_masks
 
+    def generate_token_exp_cutoff_embedding(self, input_ids, embeds, masks, input_lens):
+        # tensor size
+        # input_ids : [16, 128]
+        # embeds : 16 * [128, 768]
+        # masks : [16, 128]
+        
+        input_embeds = []
+        input_masks = []
+        
+        for i in range(embeds.shape[0]):                                            # embeds.shape[0] == batch_size
+            
+            cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
+            zero_index = torch.randint(input_lens[i], (cutoff_length,))
+            
+            # 0으로 대체할 지점의 index를 랜덤으로 생성
+            cutoff_embed = embeds[i]
+            cutoff_mask = masks[i]
+            
+            input_ids_trans = input_ids[i].view((1, 128))
+            masks_trans = masks[i].view((1, 128))
+            
+            expl = self.exp_generator.generate_LRP(
+                input_ids = input_ids_trans,
+                attention_mask = masks_trans,
+                start_layer=0
+            )[0]
+
+            tmp_mask = torch.ones(cutoff_embed.shape[0], ).to(self.args.device)
+            for ind in zero_index:
+                tmp_mask[ind] = 0
+
+            cutoff_embed = torch.mul(tmp_mask[:, None], cutoff_embed)
+            cutoff_mask = torch.mul(tmp_mask, cutoff_mask).type(torch.int64)
+
+            input_embeds.append(cutoff_embed)
+            input_masks.append(cutoff_mask)
+
+        input_embeds = torch.stack(input_embeds, dim=0)
+        input_masks = torch.stack(input_masks, dim=0)
+        
+        return input_embeds, input_masks
+
     def generate_dim_cutoff_embedding(self, embeds, masks, input_lens):
         input_embeds = []
         input_masks = []
@@ -687,6 +741,48 @@ class Trainer:
         input_masks = torch.stack(input_masks, dim=0)
 
         return input_embeds, input_masks
+    
+    def _training_step_with_token_exp_cutoff(
+         self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer
+    ) -> float:
+        
+        model.train()
+        for k, v in inputs.items():
+            inputs[k] = v.to(self.args.device)
+        
+        inputs.pop("example_index")
+
+        ori_outputs = model(**inputs)
+        loss = 0.0
+
+        assert model.__class__ is RobertaForSequenceClassification
+        input_ids = inputs['input_ids'] # [16, 128]
+        token_type_ids = inputs.get('token_type_ids', None)
+        labels = inputs.get('labels', None) # 16
+        embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids) # 16 * [128, 768]
+        masks = inputs['attention_mask'] # [16, 128]
+        
+        input_lens = torch.sum(masks, dim=1)
+
+        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(input_ids, embeds, masks, input_lens)
+        cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
+                                                                attention_mask=input_masks,
+                                                                labels=labels)
+
+        if self.args.aug_ce_loss > 0:
+            loss += self.args.aug_ce_loss * cutoff_outputs[0]
+
+        if self.args.aug_js_loss > 0:
+            assert self.args.n_gpu == 1
+            ori_logits = ori_outputs[1]
+            aug_logits = cutoff_outputs[1]
+            p = torch.softmax(ori_logits + 1e-10, dim=1)
+            q = torch.softmax(aug_logits + 1e-10, dim=1)
+            aug_js_loss = js_div(p, q)
+            loss += self.args.aug_js_loss * aug_js_loss
+
+        return self._resolve_loss_item(loss, optimizer)
+        
 
     def _training_step_with_span_cutoff(
             self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer
@@ -789,6 +885,8 @@ class Trainer:
         model.train()
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
+        
+        inputs.pop("example_index")
 
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
@@ -1021,6 +1119,8 @@ class Trainer:
 
             for k, v in inputs.items():
                 inputs[k] = v.to(self.args.device)
+                
+            inputs.pop("example_index")
 
             with torch.no_grad():
                 outputs = model(**inputs)

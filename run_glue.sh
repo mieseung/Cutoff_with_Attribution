@@ -7,7 +7,7 @@ export GLUE_DIR=/home/jovyan/work/datasets
 export TASK_NAME=$1
 export NUM_GPU=$2
 export BATCH_SIZE=$3
-export CUTOFF_TYPE="token"
+export CUTOFF_TYPE=$4
 
 CUDA_VISIBLE_DEVICES=$NUM_GPU \
 python run_glue.py \
@@ -27,5 +27,6 @@ python run_glue.py \
   --logging_steps 500 \
   --save_steps 500 \
   --per_gpu_train_batch_size $BATCH_SIZE \
-  --output_dir results/$TASK_NAME-roberta_base-${CUTOFF_TYPE}_cutoff 
-  # --overwrite_output_dir
+  --per_gpu_eval_batch_size $BATCH_SIZE \
+  --output_dir results/$TASK_NAME-roberta_base-cutoff \
+  --overwrite_output_dir
