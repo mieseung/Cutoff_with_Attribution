@@ -1,5 +1,6 @@
 """ Cutoff: A Simple but Tough-to-Beat Data Augmentation Approach for Natural Language Understanding and Generation.  """
 
+import time
 import json
 import logging
 import math
@@ -21,6 +22,10 @@ from torch.utils.data.dataset import Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data.sampler import RandomSampler, Sampler, SequentialSampler
 from tqdm.auto import tqdm, trange
+
+from transexp_orig.BertForSequenceClassification import BertForSequenceClassification
+from transexp_orig.ExplanationGenerator import Generator
+from transformers import AutoTokenizer, RobertaTokenizer
 
 from .data.data_collator import DataCollator, DefaultDataCollator
 from .modeling_utils import PreTrainedModel
@@ -168,6 +173,7 @@ class Trainer:
         self,
         model: PreTrainedModel,
         args: TrainingArguments,
+        task_name: str,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
         eval_dataset: Optional[Dataset] = None,
@@ -184,6 +190,17 @@ class Trainer:
             prediction_loss_only:
                 (Optional) in evaluation and prediction, only return the loss
         """
+        #! Model for Transformer explainability attribution
+        self.task = task_name.upper()
+        if self.task=="COLA":
+            self.task = "CoLA"
+
+        self.attr_model = BertForSequenceClassification.from_pretrained("roberta-base").to("cuda")
+        self.attr_model.eval()
+        self.attr_tokenizer = RobertaTokenizer.from_pretrained(f"roberta-base")
+        self.attr_explanations = Generator(self.attr_model)
+        
+        #! original code starts from here
         self.model = model.to(args.device)
         self.args = args
         if data_collator is not None:
@@ -483,7 +500,10 @@ class Trainer:
 
             epoch_iterator = tqdm(train_dataloader, desc=f"Epoch-{epoch}", disable=not self.is_local_master())
             for step, inputs in enumerate(epoch_iterator):
-
+                
+                # Since the batch size is 16, there are 16 data in each iteration
+                batch_data_segment = self.train_dataset.examples[step:step+16]
+                
                 # Skip past any already trained steps if resuming training
                 if steps_trained_in_current_epoch > 0:
                     steps_trained_in_current_epoch -= 1
@@ -496,6 +516,8 @@ class Trainer:
                         step_loss = self._training_step_with_token_cutoff(model, inputs, optimizer)
                     elif self.args.aug_type == 'dim_cutoff':
                         step_loss = self._training_step_with_dim_cutoff(model, inputs, optimizer)
+                    elif self.args.aug_type == 'token_exp_cutoff':
+                        step_loss = self._training_step_with_token_exp_cutoff(model, inputs, optimizer, batch_data_segment)
                     else:
                         raise NotImplementedError
                 else:
@@ -665,6 +687,33 @@ class Trainer:
 
         return input_embeds, input_masks
 
+    def generate_token_cutoff_embedding_transexp(self, embeds, masks, input_lens):
+        input_embeds = []
+        input_masks = []
+        for i in range(embeds.shape[0]):
+            cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
+            zero_index = torch.randint(input_lens[i], (cutoff_length,))
+            
+            # 0으로 대체할 지점의 index를 랜덤으로 생성
+            cutoff_embed = embeds[i]
+            cutoff_mask = masks[i]
+
+            tmp_mask = torch.ones(cutoff_embed.shape[0], ).to(self.args.device)
+            for ind in zero_index:
+                tmp_mask[ind] = 0
+            # 설정된 index 위치를 0으로 대체
+
+            cutoff_embed = torch.mul(tmp_mask[:, None], cutoff_embed)
+            cutoff_mask = torch.mul(tmp_mask, cutoff_mask).type(torch.int64)
+
+            input_embeds.append(cutoff_embed)
+            input_masks.append(cutoff_mask)
+
+        input_embeds = torch.stack(input_embeds, dim=0)
+        input_masks = torch.stack(input_masks, dim=0)
+
+        return input_embeds, input_masks
+
     def generate_dim_cutoff_embedding(self, embeds, masks, input_lens):
         input_embeds = []
         input_masks = []
@@ -805,6 +854,114 @@ class Trainer:
         input_lens = torch.sum(masks, dim=1)
 
         input_embeds, input_masks = self.generate_token_cutoff_embedding(embeds, masks, input_lens)
+        cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
+                                                                attention_mask=input_masks,
+                                                                labels=labels)
+
+        if self.args.aug_ce_loss > 0:
+            loss += self.args.aug_ce_loss * cutoff_outputs[0]
+
+        if self.args.aug_js_loss > 0:
+            assert self.args.n_gpu == 1
+            ori_logits = ori_outputs[1]
+            aug_logits = cutoff_outputs[1]
+            p = torch.softmax(ori_logits + 1e-10, dim=1)
+            q = torch.softmax(aug_logits + 1e-10, dim=1)
+            aug_js_loss = js_div(p, q)
+            loss += self.args.aug_js_loss * aug_js_loss
+
+        return self._resolve_loss_item(loss, optimizer)
+    
+    def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens, input_ids, batch_data_segment):
+        # generate an explanation for the input
+        input_ids = input_ids.to('cuda')
+        attention_masks = masks.to('cuda')
+        
+        input_embeds = []
+        input_masks = []
+        os.environ['CUDA_LAUNCH_BLOCKING'] = "1" # for debugging
+
+        for i in range(embeds.shape[0]):
+            input_embed = embeds[i] # 128 x 768
+            input_len = input_lens[i]
+            expl_input_id = input_ids[i][:input_len].reshape(1, input_len).to('cuda')
+            expl_attn_mask = attention_masks[i][:input_len].reshape(1, input_len).to('cuda')
+            
+            
+            text = batch_data_segment[i].text_a
+            if batch_data_segment[i].text_b is not None:
+                text += batch_data_segment[i].text_b
+            
+            # print("text : ", text)
+            # print(f"input length : {input_lens[i]}")
+            # print("expl_input_id : ", expl_input_id.shape)
+            # print("expl_attn_mask : ", expl_attn_mask.shape)
+            # time.sleep(2)
+            
+            expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
+            
+            # print(f"{i} : generate_LRP success")
+            # time.sleep(2)
+            
+            # normalize scores
+            expl_copy = expl.data.cpu()
+            del expl
+            torch.cuda.empty_cache()
+            
+            expl = (expl_copy - expl_copy.min()) / (expl_copy.max() - expl_copy.min())
+            cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
+            
+            if cutoff_length <= 1:
+                cutoff_length = 2
+            
+            zero_mask = torch.ones(input_embed.shape[0]).to('cuda')
+            _, lowest_indices = torch.topk(expl, cutoff_length, largest=False)
+            zero_mask[lowest_indices] = 0
+            
+            # set zero for argmax indices
+            cutoff_embed = torch.mul(zero_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
+            cutoff_mask = torch.mul(zero_mask, attention_masks[i]).type(torch.int64) # (1 x 128) x 128
+            cutoff_input_ids = torch.mul(zero_mask, input_ids[i]).type(torch.int64) # (1 x 128) x 128
+            
+            # the cutoff-ed tokens
+            # print("---- cutoff result -----")
+            # print(text)
+            # print(self.attr_tokenizer.convert_ids_to_tokens(input_ids[i]))
+            # print(self.attr_tokenizer.convert_ids_to_tokens(cutoff_input_ids))
+
+            input_embeds.append(cutoff_embed)
+            input_masks.append(cutoff_mask)
+
+        input_embeds = torch.stack(input_embeds, dim=0)
+        input_masks = torch.stack(input_masks, dim=0)
+
+        return input_embeds, input_masks
+    
+    def _training_step_with_token_exp_cutoff(
+        self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer, batch_data_segment
+    ) -> float:
+        
+        model.train()
+        for k, v in inputs.items():
+            inputs[k] = v.to(self.args.device)
+        
+        inputs.pop('example_index')
+
+        ori_outputs = model(**inputs)
+        #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
+        loss = 0.0
+
+        assert model.__class__ is RobertaForSequenceClassification
+
+        input_ids = inputs['input_ids']
+        token_type_ids = inputs.get('token_type_ids', None)
+        labels = inputs.get('labels', None)
+        embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids)
+
+        masks = inputs['attention_mask']
+        input_lens = torch.sum(masks, dim=1)
+
+        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids, batch_data_segment)
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
                                                                 labels=labels)
@@ -1021,6 +1178,8 @@ class Trainer:
 
             for k, v in inputs.items():
                 inputs[k] = v.to(self.args.device)
+            
+            inputs.pop('example_index')
 
             with torch.no_grad():
                 outputs = model(**inputs)

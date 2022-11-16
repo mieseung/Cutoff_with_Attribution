@@ -12,9 +12,9 @@ import glob
 
 import numpy as np
 
-from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
+from transformers_cutoff import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
 from transformers import GlueDataTrainingArguments as DataTrainingArguments
-from transformers import (
+from transformers_cutoff import (
     HfArgumentParser,
     Trainer,
     TrainingArguments,
@@ -164,6 +164,7 @@ def main():
     trainer = Trainer(
         model=model,
         args=training_args,
+        task_name=data_args.task_name,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,

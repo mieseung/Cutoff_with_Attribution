@@ -112,9 +112,12 @@ def _glue_convert_examples_to_features(
     label_list=None,
     output_mode=None,
 ):
+    """
+        generate tokens as features
+    """
     if max_length is None:
         max_length = tokenizer.max_len
-
+    
     if task is not None:
         processor = glue_processors[task]()
         if label_list is None:
