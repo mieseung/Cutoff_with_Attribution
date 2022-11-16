@@ -195,7 +195,7 @@ class Trainer:
         if self.task=="COLA":
             self.task = "CoLA"
 
-        self.attr_model = BertForSequenceClassification.from_pretrained(f"textattack/bert-base-uncased-{self.task}").to("cuda")
+        self.attr_model = BertForSequenceClassification.from_pretrained("roberta-base").to("cuda")
         self.attr_model.eval()
         self.attr_tokenizer = RobertaTokenizer.from_pretrained(f"roberta-base")
         self.attr_explanations = Generator(self.attr_model)
@@ -892,19 +892,23 @@ class Trainer:
             if batch_data_segment[i].text_b is not None:
                 text += batch_data_segment[i].text_b
             
-            print("text : ", text)
-            print(f"input length : {input_lens[i]}")
-            print("expl_input_id : ", expl_input_id.shape)
-            print("expl_attn_mask : ", expl_attn_mask.shape)
-            time.sleep(2)
+            # print("text : ", text)
+            # print(f"input length : {input_lens[i]}")
+            # print("expl_input_id : ", expl_input_id.shape)
+            # print("expl_attn_mask : ", expl_attn_mask.shape)
+            # time.sleep(2)
             
             expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
             
-            print(f"{i} : generate_LRP success")
-            time.sleep(2)
+            # print(f"{i} : generate_LRP success")
+            # time.sleep(2)
             
             # normalize scores
-            expl = (expl - expl.min()) / (expl.max() - expl.min())
+            expl_copy = expl.data.cpu()
+            del expl
+            torch.cuda.empty_cache()
+            
+            expl = (expl_copy - expl_copy.min()) / (expl_copy.max() - expl_copy.min())
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
             
             if cutoff_length <= 1:
@@ -1174,6 +1178,8 @@ class Trainer:
 
             for k, v in inputs.items():
                 inputs[k] = v.to(self.args.device)
+            
+            inputs.pop('example_index')
 
             with torch.no_grad():
                 outputs = model(**inputs)

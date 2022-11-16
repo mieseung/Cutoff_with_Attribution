@@ -56,7 +56,14 @@ class Generator:
             cams.append(cam.unsqueeze(0))
         rollout = compute_rollout_attention(cams, start_layer=start_layer)
         rollout[:, 0, 0] = rollout[:, 0].min()
-        return rollout[:, 0]
+        rollout_copy = rollout.data.cpu()
+        
+        del grad
+        del cam
+        del rollout
+        torch.cuda.empty_cache()
+        
+        return rollout_copy[:, 0]
 
 
     def generate_LRP_last_layer(self, input_ids, attention_mask,
