@@ -2,6 +2,7 @@
 # $1: task name
 # $2: number of GPU to use
 # $3: batch size 
+# $4: cutoff type
 
 export GLUE_DIR=/home/jovyan/work/datasets
 export TASK_NAME=$1
