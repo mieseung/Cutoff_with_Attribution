@@ -1,5 +1,6 @@
 """ Cutoff: A Simple but Tough-to-Beat Data Augmentation Approach for Natural Language Understanding and Generation.  """
 
+import time
 import json
 import logging
 import math
@@ -196,7 +197,7 @@ class Trainer:
 
         self.attr_model = BertForSequenceClassification.from_pretrained(f"textattack/bert-base-uncased-{self.task}").to("cuda")
         self.attr_model.eval()
-        self.attr_tokenizer = AutoTokenizer.from_pretrained(f"textattack/bert-base-uncased-{self.task}")
+        self.attr_tokenizer = RobertaTokenizer.from_pretrained(f"roberta-base")
         self.attr_explanations = Generator(self.attr_model)
         
         #! original code starts from here
@@ -878,40 +879,51 @@ class Trainer:
         
         input_embeds = []
         input_masks = []
+        os.environ['CUDA_LAUNCH_BLOCKING'] = "1" # for debugging
 
         for i in range(embeds.shape[0]):
-            # input_id = input_ids[i].reshape(1, 128).to('cuda')
-            # attention_mask = attention_masks[i].reshape(1, 128).to('cuda')
+            input_embed = embeds[i] # 128 x 768
+            input_len = input_lens[i]
+            expl_input_id = input_ids[i][:input_len].reshape(1, input_len).to('cuda')
+            expl_attn_mask = attention_masks[i][:input_len].reshape(1, input_len).to('cuda')
+            
             
             text = batch_data_segment[i].text_a
             if batch_data_segment[i].text_b is not None:
                 text += batch_data_segment[i].text_b
-                        
-            encoding = self.attr_tokenizer(text, return_tensors='pt')
-            input_id = encoding['input_ids'].to('cuda')
-            attention_mask = encoding['attention_mask'].to('cuda')
             
-            # TODO
-            # RuntimeError: CUDA error: device-side assert triggered
-            # CUDA kernel errors might be asynchronously reported at some other API call,so the stacktrace below might be incorrect.
-            # For debugging consider passing CUDA_LAUNCH_BLOCKING=1.
-            expl = self.attr_explanations.generate_LRP(input_ids=input_id, attention_mask=attention_mask, start_layer=0)[0]
-                        
+            print("text : ", text)
+            print(f"input length : {input_lens[i]}")
+            print("expl_input_id : ", expl_input_id.shape)
+            print("expl_attn_mask : ", expl_attn_mask.shape)
+            time.sleep(2)
+            
+            expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
+            
+            print(f"{i} : generate_LRP success")
+            time.sleep(2)
+            
             # normalize scores
             expl = (expl - expl.min()) / (expl.max() - expl.min())
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
-            _, max_attr_idx = torch.topk(expl.flatten(), 1) # do not convert id to token correctly with RobertaTokenizer
+            
+            if cutoff_length <= 1:
+                cutoff_length = 2
+            
+            zero_mask = torch.ones(input_embed.shape[0]).to('cuda')
+            _, lowest_indices = torch.topk(expl, cutoff_length, largest=False)
+            zero_mask[lowest_indices] = 0
             
             # set zero for argmax indices
-            cutoff_embed = embeds[i]
-            cutoff_mask = masks[i]
-
-            tmp_mask = torch.ones(cutoff_embed.shape[0], ).to(self.args.device)
-            for idx in max_attr_idx:
-                tmp_mask[idx] = 0
-
-            cutoff_embed = torch.mul(tmp_mask[:, None], cutoff_embed)
-            cutoff_mask = torch.mul(tmp_mask, cutoff_mask).type(torch.int64)
+            cutoff_embed = torch.mul(zero_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
+            cutoff_mask = torch.mul(zero_mask, attention_masks[i]).type(torch.int64) # (1 x 128) x 128
+            cutoff_input_ids = torch.mul(zero_mask, input_ids[i]).type(torch.int64) # (1 x 128) x 128
+            
+            # the cutoff-ed tokens
+            # print("---- cutoff result -----")
+            # print(text)
+            # print(self.attr_tokenizer.convert_ids_to_tokens(input_ids[i]))
+            # print(self.attr_tokenizer.convert_ids_to_tokens(cutoff_input_ids))
 
             input_embeds.append(cutoff_embed)
             input_masks.append(cutoff_mask)
@@ -928,6 +940,8 @@ class Trainer:
         model.train()
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
+        
+        inputs.pop('example_index')
 
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
