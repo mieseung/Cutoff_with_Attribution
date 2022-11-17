@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import torch
 import glob
-
+import time
 # compute rollout between attention layers
 def compute_rollout_attention(all_layer_matrices, start_layer=0):
     # adding residual consideration- code adapted from https://github.com/samiraabnar/attention_flow
@@ -15,7 +15,16 @@ def compute_rollout_attention(all_layer_matrices, start_layer=0):
     joint_attention = matrices_aug[start_layer]
     for i in range(start_layer+1, len(matrices_aug)):
         joint_attention = matrices_aug[i].bmm(joint_attention)
-    return joint_attention
+    
+    joint_attention_cp = joint_attention.data.cpu()
+        
+    del all_layer_matrices
+    del eye
+    del matrices_aug
+    del joint_attention
+    torch.cuda.empty_cache()
+    
+    return joint_attention_cp
 
 class Generator:
     def __init__(self, model):
@@ -27,9 +36,14 @@ class Generator:
 
     def generate_LRP(self, input_ids, attention_mask,
                      index=None, start_layer=11):
-        output = self.model(input_ids=input_ids, attention_mask=attention_mask)[0]
+        
+        print("\n---------------------------")
+        print(torch.cuda.memory_allocated())
+        output = self.model(input_ids=input_ids, attention_mask=attention_mask)[0] # 234299392 -> 3260589568
         kwargs = {"alpha": 1}
-
+        print("self.model done")
+        print(torch.cuda.memory_allocated())
+        
         if index == None:
             index = np.argmax(output.cpu().data.numpy(), axis=-1)
 
@@ -38,11 +52,18 @@ class Generator:
         one_hot_vector = one_hot
         one_hot = torch.from_numpy(one_hot).requires_grad_(True)
         one_hot = torch.sum(one_hot.cuda() * output)
+        print("make a one hot vector")
+        print(torch.cuda.memory_allocated())
 
         self.model.zero_grad()
         one_hot.backward(retain_graph=True)
+        print("back propagation with graph")
+        print(torch.cuda.memory_allocated())
 
         self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
+        print("relprop")
+        print(torch.cuda.memory_allocated())
+        torch.cuda.empty_cache()
 
         cams = []
         blocks = self.model.bert.encoder.layer
@@ -54,14 +75,22 @@ class Generator:
             cam = grad * cam
             cam = cam.clamp(min=0).mean(dim=0)
             cams.append(cam.unsqueeze(0))
+            del grad
+            del cam
+        
+        print("calculate cams")
+        print(torch.cuda.memory_allocated())
+            
         rollout = compute_rollout_attention(cams, start_layer=start_layer)
         rollout[:, 0, 0] = rollout[:, 0].min()
         rollout_copy = rollout.data.cpu()
         
-        del grad
-        del cam
         del rollout
         torch.cuda.empty_cache()
+        print("rollout attention")
+        print(torch.cuda.memory_allocated())
+        
+        print("++++++++++++++++++++++++")
         
         return rollout_copy[:, 0]
 
