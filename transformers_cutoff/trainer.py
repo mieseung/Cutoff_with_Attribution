@@ -1012,7 +1012,8 @@ class Trainer:
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
         
-        inputs.pop('example_index')
+        if hasattr(inputs, 'example_index'):
+            inputs.pop('example_index')
 
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
@@ -1244,7 +1245,10 @@ class Trainer:
             has_labels = any(inputs.get(k) is not None for k in ["labels", "lm_labels", "masked_lm_labels"])
 
             for k, v in inputs.items():
-                inputs[k] = v.cuda() #.to(self.args.device)
+                inputs[k] = v.to(self.args.device)
+            
+            if hasattr(inputs, 'example_index'):
+                inputs.pop('example_index')
 
             with torch.no_grad():
                 outputs = model(**inputs)
