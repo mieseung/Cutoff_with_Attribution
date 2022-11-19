@@ -16,7 +16,7 @@ from transformers_cutoff import RobertaForSequenceClassification
 
 from transexp_orig.ExplanationGenerator import Generator
 
-TASKS = ["CoLA", "SST-2", "MRPC", "QQP", "STS", "MNLI", "QNLI", "RTE", "WNLI", "diagnostic", "MRPC"]
+TASKS = ["CoLA", "SST-2", "MRPC", "QQP", "STS-B", "MNLI", "QNLI", "RTE", "WNLI"]
 TOKENS_EXCLUDE = [0, 1, 2, 3, 4] # cls, pad, sep, unk, period
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
