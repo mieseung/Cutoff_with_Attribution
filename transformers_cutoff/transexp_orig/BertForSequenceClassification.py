@@ -81,6 +81,35 @@ class BertForSequenceClassification(BertPreTrainedModel):
             attentions=outputs.attentions,
         )
 
+    def get_embedding_output(self, input_ids, token_type_ids=None, position_ids=None):
+        return self.bert.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids, position_ids=position_ids)
+    
+    def get_logits_from_embedding_output(self, embedding_output, attention_mask=None, labels=None):
+        outputs = self.bert.get_bert_output(embedding_output, attention_mask=attention_mask)
+        sequence_output = outputs[0]
+        # print("+"*30)
+        # print("sequence_output")
+        # print(sequence_output.shape)
+        logits = self.classifier(sequence_output)
+        outputs = (logits,) + outputs[2:]
+        if labels is not None:
+            if self.num_labels == 1:
+                #  We are doing regression
+                loss_fct = MSELoss()
+                loss = loss_fct(logits.view(-1), labels.view(-1))
+            else:
+                loss_fct = CrossEntropyLoss()
+                # print(logits[:,0,:].view(-1, self.num_labels).shape)
+                # print(labels.view(-1).shape)
+                # print("+"*30)
+                #! just take cls token!! 
+                #TODO
+                loss = loss_fct(logits[:,0,:].view(-1, self.num_labels), labels.view(-1))
+                # print(loss)
+            outputs = (loss,) + (logits[:,0,:],)
+            # print(outputs)
+        return outputs
+
     def relprop(self, cam=None, **kwargs):
         cam = self.classifier.relprop(cam, **kwargs)
         cam = self.dropout.relprop(cam, **kwargs)
@@ -117,7 +146,7 @@ class BertClassifier(nn.Module):
                 docids: List[Any],
                 document_batch: List[torch.tensor]):
         assert len(query) == len(document_batch)
-        print(query)
+        # print(query)
         # note about device management:
         # since distributed training is enabled, the inputs to this module can be on *any* device (preferably cpu, since we wrap and unwrap the module)
         # we want to keep these params on the input device (assuming CPU) for as long as possible for cheap memory access
@@ -139,8 +168,8 @@ class BertClassifier(nn.Module):
                                position_ids=positions.data)
         assert torch.all(classes == classes)  # for nans
 
-        print(input_tensors[0])
-        print(self.relprop()[0])
+        # print(input_tensors[0])
+        # print(self.relprop()[0])
 
         return classes
 
@@ -172,7 +201,7 @@ if __name__ == '__main__':
                          return_tensors='pt',
                          truncation=True)
 
-    print(x['input_ids'])
+    # print(x['input_ids'])
 
     model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=2)
     model_save_file = os.path.join('./BERT_explainability/output_bert/movies/classifier/', 'classifier.pt')
@@ -194,7 +223,7 @@ if __name__ == '__main__':
     model.eval()
 
     y = model(x['input_ids'], x['attention_mask'])
-    print(y)
+    # print(y)
 
     cam, _ = model.relprop()
 

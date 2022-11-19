@@ -57,7 +57,14 @@ class Generator:
             cams.append(cam.unsqueeze(0))
         rollout = compute_rollout_attention(cams, start_layer=start_layer)
         rollout[:, 0, 0] = rollout[:, 0].min()
-        return rollout[:, 0]
+        rollout_copy = rollout.data.cpu()
+        
+        del grad
+        del cam
+        del rollout
+        torch.cuda.empty_cache()
+        
+        return rollout_copy[:, 0]
 
 
     def generate_LRP_last_layer(self, input_ids, attention_mask,
@@ -76,7 +83,7 @@ class Generator:
         self.model.zero_grad()
         one_hot.backward(retain_graph=True)
 
-        self.model.relprop(torch.tensor(one_hot_vector).cuda(), **kwargs) #.to(input_ids.device)
+        self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
 
         cam = self.model.bert.encoder.layer[-1].attention.self.get_attn_cam()[0]
         cam = cam.clamp(min=0).mean(dim=0).unsqueeze(0)
@@ -100,7 +107,7 @@ class Generator:
         self.model.zero_grad()
         one_hot.backward(retain_graph=True)
 
-        cam = self.model.relprop(torch.tensor(one_hot_vector).cuda(), **kwargs) #.to(input_ids.device)
+        cam = self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
         cam = cam.sum(dim=2)
         cam[:, 0] = 0
         return cam
@@ -142,7 +149,7 @@ class Generator:
         self.model.zero_grad()
         one_hot.backward(retain_graph=True)
 
-        self.model.relprop(torch.tensor(one_hot_vector).cuda(), **kwargs) #.to(input_ids.device)
+        self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
 
         cam = self.model.bert.encoder.layer[-1].attention.self.get_attn()
         grad = self.model.bert.encoder.layer[-1].attention.self.get_attn_gradients()

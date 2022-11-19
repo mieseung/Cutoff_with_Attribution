@@ -2,22 +2,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-__all__ = ['forward_hook', 'Clone', 'Add', 'Cat', 'ReLU', 'GELU', 'ExpDropout', 'BatchNorm2d', 'Linear', 'MaxPool2d',
+__all__ = ['forward_hook', 'Clone', 'Add', 'Cat', 'ReLU', 'GELU', 'Dropout', 'BatchNorm2d', 'Linear', 'MaxPool2d',
            'AdaptiveAvgPool2d', 'AvgPool2d', 'Conv2d', 'Sequential', 'safe_divide', 'einsum', 'Softmax', 'IndexSelect',
-           'ExpLayerNorm', 'AddEye', 'Tanh', 'MatMul', 'Mul']
+           'LayerNorm', 'AddEye', 'Tanh', 'MatMul', 'Mul']
 
 
 def safe_divide(a, b):
-    # TODO
-    # a : [1, 128, 768]
-    # b : [1, 768]
     den = b.clamp(min=1e-9) + b.clamp(max=1e-9)
     den = den + den.eq(0).type(den.type()) * 1e-9
     return a / den * b.ne(0).type(b.type())
 
 
 def forward_hook(self, input, output):
-    if type(input[0]) in (list, tuple): 
+    if type(input[0]) in (list, tuple):
         self.X = []
         for i in input[0]:
             x = i.detach()
@@ -42,9 +39,7 @@ class RelProp(nn.Module):
         self.register_forward_hook(forward_hook)
 
     def gradprop(self, Z, X, S):
-        # print("+++this is RelProp gradprop+++")
-        # print(Z.shape, X.shape, S.shape)
-        C = torch.autograd.grad(Z, X, S, retain_graph=True, allow_unused=True)
+        C = torch.autograd.grad(Z, X, S, retain_graph=True)
         return C
 
     def relprop(self, R, alpha):
@@ -53,13 +48,9 @@ class RelProp(nn.Module):
 
 class RelPropSimple(RelProp):
     def relprop(self, R, alpha):
-        Z = self.forward(self.X) # matmul
+        Z = self.forward(self.X)
         S = safe_divide(R, Z)
-        # print(torch.autograd.grad(Z, self.X, S, retain_graph=True))
-        # C = self.gradprop(Z, self.X, S)
-        # print("+++this is RelPropSimple gradprop+++")
-        # print(Z.shape, X.shape, S.shape)
-        C = torch.autograd.grad(Z, self.X, S, retain_graph=True)
+        C = self.gradprop(Z, self.X, S)
 
         if torch.is_tensor(self.X) == False:
             outputs = []
@@ -72,35 +63,27 @@ class RelPropSimple(RelProp):
 class AddEye(RelPropSimple):
     # input of shape B, C, seq_len, seq_len
     def forward(self, input):
-        return input + torch.eye(input.shape[2]).expand_as(input).cuda() #.to(input.device)
+        return input + torch.eye(input.shape[2]).expand_as(input).to(input.device)
 
 class ReLU(nn.ReLU, RelProp):
-    # print("+++This is ReLU+++")
     pass
 
 class GELU(nn.GELU, RelProp):
-    # print("+++This is GELU+++")
     pass
 
 class Softmax(nn.Softmax, RelProp):
-    # print("+++This is Softmax+++")
     pass
 
 class Mul(RelPropSimple):
     def forward(self, inputs):
-        # print("+++This is Mul+++")
         return torch.mul(*inputs)
 
 class Tanh(nn.Tanh, RelProp):
-    # print("+++This is Tanh+++")
+    pass
+class LayerNorm(nn.LayerNorm, RelProp):
     pass
 
-class ExpLayerNorm(nn.LayerNorm, RelProp):
-    # print("+++This is ExpLayerNorm+++")
-    pass
-
-class ExpDropout(nn.Dropout, RelProp):
-    # # print("+++This is ExpDropout+++")
+class Dropout(nn.Dropout, RelProp):
     pass
 
 class MatMul(RelPropSimple):
@@ -111,7 +94,6 @@ class MaxPool2d(nn.MaxPool2d, RelPropSimple):
     pass
 
 class LayerNorm(nn.LayerNorm, RelProp):
-    # print("+++This is LayerNorm+++")
     pass
 
 class AdaptiveAvgPool2d(nn.AdaptiveAvgPool2d, RelPropSimple):
@@ -156,21 +138,15 @@ class einsum(RelPropSimple):
 
 class IndexSelect(RelProp):
     def forward(self, inputs, dim, indices):
-        # print("+++This is IndexSelect+++")
         self.__setattr__('dim', dim)
         self.__setattr__('indices', indices)
 
         return torch.index_select(inputs, dim, indices)
 
     def relprop(self, R, alpha):
-        # print("+++This is IndexSelect+++")
         Z = self.forward(self.X, self.dim, self.indices)
         S = safe_divide(R, Z)
         C = self.gradprop(Z, self.X, S)
-        # print(f"Z {Z.shape}")
-        # print(f"S {S.shape}")
-        # print(f"C {C.shape}")
-        # print(f"X {self.X.shape}")
 
         if torch.is_tensor(self.X) == False:
             outputs = []
@@ -192,7 +168,6 @@ class Clone(RelProp):
         return outputs
 
     def relprop(self, R, alpha):
-        # print("+++This is Clone+++")
         Z = []
         for _ in range(self.num):
             Z.append(self.X)
@@ -210,7 +185,6 @@ class Cat(RelProp):
         return torch.cat(inputs, dim)
 
     def relprop(self, R, alpha):
-        # print("+++This is Cat+++")
         Z = self.forward(self.X, self.dim)
         S = safe_divide(R, Z)
         C = self.gradprop(Z, self.X, S)
@@ -251,15 +225,8 @@ class Linear(nn.Linear, RelProp):
         nx = torch.clamp(self.X, max=0)
 
         def f(w1, w2, x1, x2):
-            # print("+++This is Linear+++")
-            # print(f"w1 {w1.shape}")
-            # print(f"w2 {w2.shape}")
-            # print(f"x1 {x1.shape}")
-            # print(f"x2 {x2.shape}")
             Z1 = F.linear(x1, w1)
             Z2 = F.linear(x2, w2)
-            # print(f"Z1 {Z1.shape}")
-            # print(f"Z2 {Z2.shape}")
             S1 = safe_divide(R, Z1 + Z2)
             S2 = safe_divide(R, Z1 + Z2)
             C1 = x1 * self.gradprop(Z1, x1, S1)[0]
@@ -310,7 +277,6 @@ class Conv2d(nn.Conv2d, RelProp):
             nx = torch.clamp(self.X, max=0)
 
             def f(w1, w2, x1, x2):
-                # print("This is Conv2d")
                 Z1 = F.conv2d(x1, w1, bias=None, stride=self.stride, padding=self.padding)
                 Z2 = F.conv2d(x2, w2, bias=None, stride=self.stride, padding=self.padding)
                 S1 = safe_divide(R, Z1)

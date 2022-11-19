@@ -44,7 +44,7 @@ class PaddedSequence:
         else:
             # TODO actually test this codepath
             batch_lengths = torch.LongTensor([len(x) for x in data])
-        return PaddedSequence(padded, batch_lengths, batch_first).cuda() #.to(device=device)
+        return PaddedSequence(padded, batch_lengths, batch_first).to(device=device)
 
     def pack_other(self, data: torch.Tensor):
         return pack_padded_sequence(data, self.batch_sizes, batch_first=self.batch_first, enforce_sorted=False)
@@ -77,7 +77,7 @@ class PaddedSequence:
         else:
             for i, bl in enumerate(self.batch_sizes):
                 out_tensor[:bl, i] = on
-        return out_tensor.cuda() #.to(device)
+        return out_tensor.to(device)
 
     def unpad(self, other: torch.Tensor) -> List[torch.Tensor]:
         out = []
