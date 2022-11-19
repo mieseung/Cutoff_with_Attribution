@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
+import pandas as pd
 import torch
 from packaging import version
 from torch import nn
@@ -181,6 +182,7 @@ class Trainer:
         prediction_loss_only=False,
         tb_writer: Optional["SummaryWriter"] = None,
         optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = None,
+        cutoff_idx: pd.DataFrame = None,
     ):
         """
         Trainer is a simple but feature-complete training and eval loop for PyTorch,
@@ -195,10 +197,12 @@ class Trainer:
         if self.task=="COLA":
             self.task = "CoLA"
 
-        self.attr_model = BertForSequenceClassification.from_pretrained("roberta-base").to("cuda")
-        self.attr_model.eval()
-        self.attr_tokenizer = RobertaTokenizer.from_pretrained(f"roberta-base")
-        self.attr_explanations = Generator(self.attr_model)
+        # self.attr_model = BertForSequenceClassification.from_pretrained("roberta-base").to("cuda")
+        # self.attr_model.eval()
+        # self.attr_tokenizer = RobertaTokenizer.from_pretrained(f"roberta-base")
+        # self.attr_explanations = Generator(self.attr_model)
+        self.cutoff_idx = cutoff_idx
+        self.cutoff_idx_cursor = 0
         
         #! original code starts from here
         self.model = model.to(args.device)
@@ -392,6 +396,7 @@ class Trainer:
             return len(dataloader.dataset)
 
     def train(self, model_path: Optional[str] = None):
+        torch.autograd.set_detect_anomaly(True)
         """
         Main training entry point.
 
@@ -495,6 +500,7 @@ class Trainer:
 
         self.eval_history = []
         for epoch in train_iterator:
+            self.cutoff_idx_cursor = 0
             if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
                 train_dataloader.sampler.set_epoch(epoch)
 
@@ -884,50 +890,22 @@ class Trainer:
         for i in range(embeds.shape[0]):
             input_embed = embeds[i] # 128 x 768
             input_len = input_lens[i]
-            expl_input_id = input_ids[i][:input_len].reshape(1, input_len).to('cuda')
-            expl_attn_mask = attention_masks[i][:input_len].reshape(1, input_len).to('cuda')
             
+            cutoff_idx = self.cutoff_idx['cutoff_idx'][self.cutoff_idx_cursor]
+            self.cutoff_idx_cursor += 1
+            cutoff_idx = list(map(int, cutoff_idx[1:-1].split(", ")))
+            # cutoff_idx = torch.tensor(cutoff_idx)
             
-            text = batch_data_segment[i].text_a
-            if batch_data_segment[i].text_b is not None:
-                text += batch_data_segment[i].text_b
-            
-            # print("text : ", text)
-            # print(f"input length : {input_lens[i]}")
-            # print("expl_input_id : ", expl_input_id.shape)
-            # print("expl_attn_mask : ", expl_attn_mask.shape)
-            # time.sleep(2)
-            
-            expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
-            
-            # print(f"{i} : generate_LRP success")
-            # time.sleep(2)
-            
-            # normalize scores
-            expl_copy = expl.data.cpu()
-            del expl
-            torch.cuda.empty_cache()
-            
-            expl = (expl_copy - expl_copy.min()) / (expl_copy.max() - expl_copy.min())
-            cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
-            
-            if cutoff_length <= 1:
-                cutoff_length = 2
-            
-            zero_mask = torch.ones(input_embed.shape[0]).to('cuda')
-            _, lowest_indices = torch.topk(expl, cutoff_length, largest=False)
-            zero_mask[lowest_indices] = 0
+            # zero_mask = attention_masks[i]
+            # zero_mask[cutoff_idx] = 0
+            tmp_mask = torch.ones(input_embed.shape[0], ).cuda() #.to(self.args.device)
+            for ind in cutoff_idx:
+                tmp_mask[ind] = 0
             
             # set zero for argmax indices
-            cutoff_embed = torch.mul(zero_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
-            cutoff_mask = torch.mul(zero_mask, attention_masks[i]).type(torch.int64) # (1 x 128) x 128
-            cutoff_input_ids = torch.mul(zero_mask, input_ids[i]).type(torch.int64) # (1 x 128) x 128
-            
-            # the cutoff-ed tokens
-            # print("---- cutoff result -----")
-            # print(text)
-            # print(self.attr_tokenizer.convert_ids_to_tokens(input_ids[i]))
-            # print(self.attr_tokenizer.convert_ids_to_tokens(cutoff_input_ids))
+            cutoff_embed = torch.mul(tmp_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
+            cutoff_mask = torch.mul(tmp_mask, attention_masks[i]).type(torch.int64) # (1 x 128) x 128
+            # cutoff_input_ids = torch.mul(zero_mask, input_ids[i]).type(torch.int64) # (1 x 128) x 128
 
             input_embeds.append(cutoff_embed)
             input_masks.append(cutoff_mask)
