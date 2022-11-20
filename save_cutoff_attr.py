@@ -9,9 +9,8 @@ import pandas as pd
 
 # from transformers import BertTokenizer
 from transformers_cutoff import AutoTokenizer
-from transformers_cutoff.data.processors.glue import glue_convert_examples_to_features, glue_output_modes, glue_processors
+from transformers_cutoff.data.processors.glue import glue_processors
 from transformers_cutoff.data.processors.utils import InputFeatures
-from transformers_cutoff.data.processors.utils import DataProcessor, InputExample
 from transformers_cutoff import RobertaForSequenceClassification
 
 from transexp_orig.ExplanationGenerator import Generator
@@ -62,6 +61,8 @@ def main():
     
     label_list = processor.get_labels()
     label_map = {label: i for i, label in enumerate(label_list)}
+    print(label_list)
+    print()
     labels = [label_map[example.label] for example in examples]
 
     features = []
@@ -112,6 +113,8 @@ def main():
       cutoff_indices.append(lowest_indices.tolist())
       
     pd.DataFrame({"idx": range(len(features)), "cutoff_idx": cutoff_indices}).to_csv(str(args.save_dir / task)+".tsv", index=False, sep="\t")
+    print(f"Saved: {task}")
+    print()
 
       
   

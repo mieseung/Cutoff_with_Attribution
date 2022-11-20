@@ -45,7 +45,7 @@ class Generator:
         self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
 
         cams = []
-        blocks = self.model.bert.encoder.layer
+        blocks = self.model.roberta.encoder.layer
         for blk in blocks:
             grad = blk.attention.self.get_attn_gradients()
             cam = blk.attention.self.get_attn_cam()
@@ -84,7 +84,7 @@ class Generator:
 
         self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
 
-        cam = self.model.bert.encoder.layer[-1].attention.self.get_attn_cam()[0]
+        cam = self.model.roberta.encoder.layer[-1].attention.self.get_attn_cam()[0]
         cam = cam.clamp(min=0).mean(dim=0).unsqueeze(0)
         cam[:, 0, 0] = 0
         return cam[:, 0]
@@ -114,7 +114,7 @@ class Generator:
     def generate_attn_last_layer(self, input_ids, attention_mask,
                      index=None):
         output = self.model(input_ids=input_ids, attention_mask=attention_mask)[0]
-        cam = self.model.bert.encoder.layer[-1].attention.self.get_attn()[0]
+        cam = self.model.roberta.encoder.layer[-1].attention.self.get_attn()[0]
         cam = cam.mean(dim=0).unsqueeze(0)
         cam[:, 0, 0] = 0
         return cam[:, 0]
@@ -122,7 +122,7 @@ class Generator:
     def generate_rollout(self, input_ids, attention_mask, start_layer=0, index=None):
         self.model.zero_grad()
         output = self.model(input_ids=input_ids, attention_mask=attention_mask)[0]
-        blocks = self.model.bert.encoder.layer
+        blocks = self.model.roberta.encoder.layer
         all_layer_attentions = []
         for blk in blocks:
             attn_heads = blk.attention.self.get_attn()
@@ -150,8 +150,8 @@ class Generator:
 
         self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
 
-        cam = self.model.bert.encoder.layer[-1].attention.self.get_attn()
-        grad = self.model.bert.encoder.layer[-1].attention.self.get_attn_gradients()
+        cam = self.model.roberta.encoder.layer[-1].attention.self.get_attn()
+        grad = self.model.roberta.encoder.layer[-1].attention.self.get_attn_gradients()
 
         cam = cam[0].reshape(-1, cam.shape[-1], cam.shape[-1])
         grad = grad[0].reshape(-1, grad.shape[-1], grad.shape[-1])
