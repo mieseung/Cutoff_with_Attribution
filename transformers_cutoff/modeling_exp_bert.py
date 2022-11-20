@@ -379,7 +379,7 @@ class BertSelfAttention(nn.Module):
         self.key = Linear(config.hidden_size, self.all_head_size)
         self.value = Linear(config.hidden_size, self.all_head_size)
 
-        self.dropout = ExpDropout(config.attention_probs_dropout_prob)
+        self.dropout = Dropout(config.attention_probs_dropout_prob)
         
         self.matmul1 = MatMul()
         self.matmul2 = MatMul()
@@ -530,8 +530,8 @@ class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
         self.dense = Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = ExpLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.dropout = ExpDropout(config.hidden_dropout_prob)
+        self.LayerNorm = LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.dropout = Dropout(config.hidden_dropout_prob)
         self.add = Add()
 
     def forward(self, hidden_states, input_tensor):
@@ -575,8 +575,8 @@ class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
         self.dense = Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = ExpLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.dropout = ExpDropout(config.hidden_dropout_prob)
+        self.LayerNorm = LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.dropout = Dropout(config.hidden_dropout_prob)
         self.add = Add()
 
     def forward(self, hidden_states, input_tensor):

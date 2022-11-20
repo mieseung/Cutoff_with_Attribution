@@ -61,7 +61,7 @@ class RobertaEmbeddings(BertEmbeddings):
         )
         
         self.register_buffer("position_ids", torch.arange(config.max_position_embeddings).expand((1, -1)))
-        self.LayerNorm = ExpLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.LayerNorm = LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = ExpDropout(config.hidden_dropout_prob)
         
         self.add1 = Add()
