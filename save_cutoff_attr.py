@@ -61,9 +61,15 @@ def main():
     
     label_list = processor.get_labels()
     label_map = {label: i for i, label in enumerate(label_list)}
-    print(label_list)
+    
+    if task == "STS-B":
+      labels = [float(example.label) for example in examples]
+      print("continuous label")
+    else:
+      labels = [label_map[example.label] for example in examples]
+      print(label_list)
     print()
-    labels = [label_map[example.label] for example in examples]
+    # labels = [label_map[example.label] for example in examples]
 
     features = []
     for i in range(len(examples)):
@@ -72,7 +78,7 @@ def main():
       feature = InputFeatures(**inputs, label=labels[i])
       features.append(feature)
       
-      
+    print("Get pretrained model")  
     model = RobertaForSequenceClassification.from_pretrained(
               str(args.pretrain_dir / task / "checkpoint_token"),
             ).to("cuda")
@@ -81,6 +87,7 @@ def main():
     
     cutoff_indices = []
     
+    print("Compute attribution")
     for i in tqdm(range(len(features))):
       input_ids = torch.tensor(features[i].input_ids, dtype=int).reshape(1,-1).cuda()
       attention_mask = torch.tensor(features[i].attention_mask, dtype=torch.float32).reshape(1,-1).cuda()
@@ -111,6 +118,8 @@ def main():
         
       lowest_indices = torch.topk(expl_excluded, cutoff_ratio, 0, largest=False).indices
       cutoff_indices.append(lowest_indices.tolist())
+      
+      del input_ids, attention_mask, expl
       
     pd.DataFrame({"idx": range(len(features)), "cutoff_idx": cutoff_indices}).to_csv(str(args.save_dir / task)+".tsv", index=False, sep="\t")
     print(f"Saved: {task}")
