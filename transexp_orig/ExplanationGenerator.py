@@ -30,7 +30,6 @@ def compute_rollout_attention(all_layer_matrices, start_layer=0):
 
 class Generator:
     def __init__(self, model):
-        self.temp_model = model
         self.model = model
         self.model.eval()
 
@@ -40,12 +39,12 @@ class Generator:
     def generate_LRP(self, input_ids, attention_mask,
                      index=None, start_layer=11):
         
-        print("\n---------------------------")
-        print(torch.cuda.memory_allocated())
+        # print("\n---------------------------")
+        # print(torch.cuda.memory_allocated())
         output = self.model(input_ids=input_ids, attention_mask=attention_mask)[0] # 234299392 -> 3260589568
         kwargs = {"alpha": 1}
-        print("self.model done")
-        print(torch.cuda.memory_allocated())
+        # print("self.model done")
+        # print(torch.cuda.memory_allocated())
         
         if index == None:
             index = np.argmax(output.cpu().data.numpy(), axis=-1)
@@ -55,18 +54,18 @@ class Generator:
         one_hot_vector = one_hot
         one_hot = torch.from_numpy(one_hot).requires_grad_(True)
         one_hot = torch.sum(one_hot.cuda() * output)
-        print("make a one hot vector")
-        print(torch.cuda.memory_allocated())
+        # print("make a one hot vector")
+        # print(torch.cuda.memory_allocated())
 
         self.model.zero_grad()
         # one_hot.backward(create_graph=True, retain_graph=False)
         one_hot.backward(retain_graph=True)
-        print("back propagation with graph")
-        print(torch.cuda.memory_allocated())
+        # print("back propagation with graph")
+        # print(torch.cuda.memory_allocated())
 
         self.model.relprop(torch.tensor(one_hot_vector).to(input_ids.device), **kwargs)
-        print("relprop")
-        print(torch.cuda.memory_allocated())
+        # print("relprop")
+        # print(torch.cuda.memory_allocated())
         torch.cuda.empty_cache()
 
         cams = []
@@ -82,22 +81,22 @@ class Generator:
             del grad
             del cam
         
-        print("calculate cams [ DONE ]")
-        print(torch.cuda.memory_allocated())
+        # print("calculate cams [ DONE ]")
+        # print(torch.cuda.memory_allocated())
             
         rollout = compute_rollout_attention(cams, start_layer=start_layer)
         rollout[:, 0, 0] = rollout[:, 0].min()
         rollout_copy = rollout.data.cpu()
         
+        one_hot.backward(retain_graph=False) # to remove retained graph
         del one_hot
         del one_hot_vector
         del rollout
         del cams
-        self.model = self.temp_model
         torch.cuda.empty_cache()
-        print("rollout attention [ DONE ] ")
-        print(torch.cuda.memory_allocated())
+        # print("rollout attention [ DONE ] ")
+        # print(torch.cuda.memory_allocated())
         
-        print("++++++++++++++++++++++++")
+        # print("++++++++++++++++++++++++")
         
         return rollout_copy[:, 0]
