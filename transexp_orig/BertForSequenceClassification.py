@@ -85,8 +85,6 @@ class BertForSequenceClassification(BertPreTrainedModel):
         cam = self.dropout.relprop(cam, **kwargs)
         cam = self.bert.relprop(cam, **kwargs)
         # print("conservation: ", cam.sum())
-        print("After model relprop")
-        print(torch.cuda.memory_allocated())
         return cam
 
 

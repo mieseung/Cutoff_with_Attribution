@@ -890,20 +890,10 @@ class Trainer:
             expl_attn_mask = attention_masks[i][:input_len].reshape(1, input_len).to('cuda')
             
             
-            # text = batch_data_segment[i].text_a
-            # if batch_data_segment[i].text_b is not None:
-            #     text += batch_data_segment[i].text_b
-            
-            # print("text : ", text)
-            # print(f"input length : {input_lens[i]}")
-            # print("expl_input_id : ", expl_input_id.shape)
-            # print("expl_attn_mask : ", expl_attn_mask.shape)
-            # time.sleep(2)
+            # print("start generate LRP")
+            # print(torch.cuda.memory_allocated())
             
             expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
-            
-            print("after calculating expl via generate_LRP")
-            print(torch.cuda.memory_allocated())
             
             # normalize scores
             expl_copy = expl.data.cpu()
@@ -911,6 +901,9 @@ class Trainer:
             del expl_attn_mask
             del expl
             torch.cuda.empty_cache()
+            
+            # print("after calculating expl via generate_LRP")
+            # print(torch.cuda.memory_allocated())
             
             expl = (expl_copy - expl_copy.min()) / (expl_copy.max() - expl_copy.min())
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
@@ -938,10 +931,12 @@ class Trainer:
             # print("sleep 2 seconds")
             # time.sleep(2)
             torch.cuda.empty_cache()
-        print(Asdfs)
             
         input_embeds = torch.stack(input_embeds, dim=0)
         input_masks = torch.stack(input_masks, dim=0)
+        
+        # print("end of generate token embedding function")
+        # print(torch.cuda.memory_allocated())
 
         return input_embeds, input_masks
     
@@ -970,7 +965,13 @@ class Trainer:
         masks = inputs['attention_mask']
         input_lens = torch.sum(masks, dim=1)
 
+        # print("Before generate token exp cutoff embedding")
+        # print(torch.cuda.memory_allocated())
+        
         input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids, batch_data_segment)
+        
+        # print("After generate token exp cutoff embedding")
+        # print(torch.cuda.memory_allocated())
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
                                                                 labels=labels)
