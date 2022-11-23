@@ -902,8 +902,8 @@ class Trainer:
             
             expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
             
-            # print(f"{i} : generate_LRP success")
-            # time.sleep(2)
+            print("after calculating expl via generate_LRP")
+            print(torch.cuda.memory_allocated())
             
             # normalize scores
             expl_copy = expl.data.cpu()
@@ -937,6 +937,7 @@ class Trainer:
             input_masks.append(cutoff_mask)
             # print("sleep 2 seconds")
             # time.sleep(2)
+            torch.cuda.empty_cache()
         print(Asdfs)
             
         input_embeds = torch.stack(input_embeds, dim=0)
