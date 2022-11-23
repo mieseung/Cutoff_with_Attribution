@@ -3,6 +3,8 @@ import numpy as np
 import torch
 import glob
 import time
+import copy
+
 # compute rollout between attention layers
 def compute_rollout_attention(all_layer_matrices, start_layer=0):
     # adding residual consideration- code adapted from https://github.com/samiraabnar/attention_flow
@@ -28,6 +30,7 @@ def compute_rollout_attention(all_layer_matrices, start_layer=0):
 
 class Generator:
     def __init__(self, model):
+        self.temp_model = model
         self.model = model
         self.model.eval()
 
@@ -78,16 +81,20 @@ class Generator:
             del grad
             del cam
         
-        print("calculate cams")
+        print("calculate cams [ DONE ]")
         print(torch.cuda.memory_allocated())
             
         rollout = compute_rollout_attention(cams, start_layer=start_layer)
         rollout[:, 0, 0] = rollout[:, 0].min()
         rollout_copy = rollout.data.cpu()
         
+        del one_hot
+        del one_hot_vector
         del rollout
+        del cams
+        self.model = self.temp_model
         torch.cuda.empty_cache()
-        print("rollout attention")
+        print("rollout attention [ DONE ] ")
         print(torch.cuda.memory_allocated())
         
         print("++++++++++++++++++++++++")
