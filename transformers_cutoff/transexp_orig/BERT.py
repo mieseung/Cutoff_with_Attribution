@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import math
 from transformers import BertConfig
 from transformers.modeling_outputs import BaseModelOutputWithPooling, BaseModelOutput
-from transexp_orig.layers import *
+from .layers import *
 from transformers import (
     BertPreTrainedModel,
     PreTrainedModel,
@@ -180,9 +180,13 @@ class BertPooler(nn.Module):
 
     def relprop(self, cam, **kwargs):
         cam = self.activation.relprop(cam, **kwargs)
+        #print(cam.sum())
         cam = self.dense.relprop(cam, **kwargs)
+        #print(cam.sum())
         cam = cam.unsqueeze(1)
         cam = self.pool.relprop(cam, **kwargs)
+        #print(cam.sum())
+
         return cam
 
 class BertAttention(nn.Module):
@@ -259,7 +263,7 @@ class BertSelfAttention(nn.Module):
         self.key = Linear(config.hidden_size, self.all_head_size)
         self.value = Linear(config.hidden_size, self.all_head_size)
 
-        self.dropout = Dropout(config.attention_probs_dropout_prob)
+        self.dropout = ExpDropout(config.attention_probs_dropout_prob)
 
         self.matmul1 = MatMul()
         self.matmul2 = MatMul()

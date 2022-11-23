@@ -1,17 +1,17 @@
 """ Cutoff: A Simple but Tough-to-Beat Data Augmentation Approach for Natural Language Understanding and Generation.  """
 
-import time
 import json
 import logging
 import math
 import os
 import random
-import re
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
+import GPUtil
+import time
 import numpy as np
 import torch
 from packaging import version
@@ -838,6 +838,8 @@ class Trainer:
         model.train()
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
+        
+        inputs.pop('example_index')
 
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
@@ -888,9 +890,9 @@ class Trainer:
             expl_attn_mask = attention_masks[i][:input_len].reshape(1, input_len).to('cuda')
             
             
-            text = batch_data_segment[i].text_a
-            if batch_data_segment[i].text_b is not None:
-                text += batch_data_segment[i].text_b
+            # text = batch_data_segment[i].text_a
+            # if batch_data_segment[i].text_b is not None:
+            #     text += batch_data_segment[i].text_b
             
             # print("text : ", text)
             # print(f"input length : {input_lens[i]}")
@@ -900,11 +902,13 @@ class Trainer:
             
             expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
             
-            # print(f"{i} : generate_LRP success")
-            # time.sleep(2)
+            print("after calculating expl via generate_LRP")
+            print(torch.cuda.memory_allocated())
             
             # normalize scores
             expl_copy = expl.data.cpu()
+            del expl_input_id
+            del expl_attn_mask
             del expl
             torch.cuda.empty_cache()
             
@@ -931,7 +935,11 @@ class Trainer:
 
             input_embeds.append(cutoff_embed)
             input_masks.append(cutoff_mask)
-
+            # print("sleep 2 seconds")
+            # time.sleep(2)
+            torch.cuda.empty_cache()
+        print(Asdfs)
+            
         input_embeds = torch.stack(input_embeds, dim=0)
         input_masks = torch.stack(input_masks, dim=0)
 
@@ -966,6 +974,9 @@ class Trainer:
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
                                                                 labels=labels)
+        
+        # print("generate_token_exp_cutoff done!")
+        # time.sleep(10)
 
         if self.args.aug_ce_loss > 0:
             loss += self.args.aug_ce_loss * cutoff_outputs[0]
@@ -979,6 +990,10 @@ class Trainer:
             aug_js_loss = js_div(p, q)
             loss += self.args.aug_js_loss * aug_js_loss
 
+        # print("loss calculation done!")
+        # time.sleep(10)
+        del cutoff_outputs
+        torch.cuda.empty_cache()
         return self._resolve_loss_item(loss, optimizer)
 
     def is_local_master(self) -> bool:
