@@ -246,6 +246,7 @@ def main():
         test_dataset = test_dataset_class(data_args, tokenizer = tokenizer)
         trainer = Trainer(
             model = model,
+            task_name=data_args.task_name,
             args = training_args,
             compute_metrics = compute_metrics
         )
