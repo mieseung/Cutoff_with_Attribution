@@ -911,8 +911,6 @@ class Trainer:
             
             # normalize scores
             expl_copy = expl.data.cpu()
-            del expl_input_id
-            del expl_attn_mask
             del expl
             torch.cuda.empty_cache()
             
@@ -931,14 +929,16 @@ class Trainer:
                 if cutoff_length + extra_length > input_len:
                     extra_length = input_lens - cutoff_length
             
-            lowest_values, lowest_indices = torch.topk(expl, cutoff_length + extra_length, largest=False)
+            _, lowest_indices = torch.topk(expl, cutoff_length + extra_length, largest=False)
             
             if self.args.exclude_special_tokens:
                 except_indices = []
                 
                 # check whether lowest attribution tokens are special tokens
-                for j in range(len(lowest_values)):
-                    if lowest_values[j] in self.special_token_ids:
+                for j in range(len(lowest_indices)):
+                    idx = lowest_indices[j]
+                    input_id = input_ids[i]
+                    if input_id[idx] in self.special_token_ids:
                         except_indices.append(j)
                 
                 # if so, exclude them and extract cutoff_length size vector
