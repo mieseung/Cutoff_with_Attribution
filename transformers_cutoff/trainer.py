@@ -949,6 +949,8 @@ class Trainer:
                 # if not, just extract cutoff_length size vector
                 else:
                     lowest_indices = lowest_indices[:cutoff_length]
+            
+            assert lowest_indices.shape == torch.Size([cutoff_length])
                         
             # set zero for argmax indices
             cutoff_embed = torch.mul(zero_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
