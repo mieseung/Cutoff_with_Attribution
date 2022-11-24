@@ -6,12 +6,11 @@ import math
 import os
 import random
 import shutil
+
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
-import GPUtil
-import time
 import numpy as np
 import torch
 from packaging import version
@@ -762,7 +761,6 @@ class Trainer:
         for i in range(embeds.shape[0]):
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
             start = int(torch.rand(1).to(self.args.device) * (input_lens[i] - cutoff_length))
-            # print(input_lens[i], cutoff_length, start)
             cutoff_embed = torch.cat((embeds[i][:start],
                                       torch.zeros([cutoff_length, embeds.shape[-1]],
                                                   dtype=torch.float).to(self.args.device),
@@ -889,10 +887,6 @@ class Trainer:
             expl_input_id = input_ids[i][:input_len].reshape(1, input_len).to('cuda')
             expl_attn_mask = attention_masks[i][:input_len].reshape(1, input_len).to('cuda')
             
-            
-            # print("start generate LRP")
-            # print(torch.cuda.memory_allocated())
-            
             expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
             
             # normalize scores
@@ -901,9 +895,6 @@ class Trainer:
             del expl_attn_mask
             del expl
             torch.cuda.empty_cache()
-            
-            # print("after calculating expl via generate_LRP")
-            # print(torch.cuda.memory_allocated())
             
             expl = (expl_copy - expl_copy.min()) / (expl_copy.max() - expl_copy.min())
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
@@ -918,25 +909,13 @@ class Trainer:
             # set zero for argmax indices
             cutoff_embed = torch.mul(zero_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
             cutoff_mask = torch.mul(zero_mask, attention_masks[i]).type(torch.int64) # (1 x 128) x 128
-            cutoff_input_ids = torch.mul(zero_mask, input_ids[i]).type(torch.int64) # (1 x 128) x 128
-            
-            # the cutoff-ed tokens
-            # print("---- cutoff result -----")
-            # print(text)
-            # print(self.attr_tokenizer.convert_ids_to_tokens(input_ids[i]))
-            # print(self.attr_tokenizer.convert_ids_to_tokens(cutoff_input_ids))
 
             input_embeds.append(cutoff_embed)
             input_masks.append(cutoff_mask)
-            # print("sleep 2 seconds")
-            # time.sleep(2)
             torch.cuda.empty_cache()
             
         input_embeds = torch.stack(input_embeds, dim=0)
         input_masks = torch.stack(input_masks, dim=0)
-        
-        # print("end of generate token embedding function")
-        # print(torch.cuda.memory_allocated())
 
         return input_embeds, input_masks
     
@@ -964,20 +943,12 @@ class Trainer:
 
         masks = inputs['attention_mask']
         input_lens = torch.sum(masks, dim=1)
-
-        # print("Before generate token exp cutoff embedding")
-        # print(torch.cuda.memory_allocated())
         
         input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids, batch_data_segment)
         
-        # print("After generate token exp cutoff embedding")
-        # print(torch.cuda.memory_allocated())
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
                                                                 labels=labels)
-        
-        # print("generate_token_exp_cutoff done!")
-        # time.sleep(10)
 
         if self.args.aug_ce_loss > 0:
             loss += self.args.aug_ce_loss * cutoff_outputs[0]
@@ -991,8 +962,6 @@ class Trainer:
             aug_js_loss = js_div(p, q)
             loss += self.args.aug_js_loss * aug_js_loss
 
-        # print("loss calculation done!")
-        # time.sleep(10)
         del cutoff_outputs
         torch.cuda.empty_cache()
         return self._resolve_loss_item(loss, optimizer)
