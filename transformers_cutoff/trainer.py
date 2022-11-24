@@ -158,6 +158,7 @@ class Trainer:
 
     model: PreTrainedModel
     args: TrainingArguments
+    task_name: str
     data_collator: DataCollator
     train_dataset: Optional[Dataset]
     eval_dataset: Optional[Dataset]
@@ -976,7 +977,7 @@ class Trainer:
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
         
-        if hasattr(inputs, 'example_index'):
+        if "example_index" in inputs.keys():
             inputs.pop('example_index')
 
         ori_outputs = model(**inputs)
@@ -1214,7 +1215,7 @@ class Trainer:
             for k, v in inputs.items():
                 inputs[k] = v.to(self.args.device)
             
-            if hasattr(inputs, 'example_index'):
+            if "example_index" in inputs.keys():
                 inputs.pop('example_index')
 
             with torch.no_grad():
