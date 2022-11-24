@@ -249,13 +249,14 @@ class Trainer:
     
     def _initialize_special_tokens(self):
         tokenizer = self.attr_tokenizer
-        self.special_token_ids = (
+        self.special_token_ids = [
             tokenizer.cls_token_id,
             tokenizer.sep_token_id,
             tokenizer.bos_token_id,
             tokenizer.eos_token_id,
             tokenizer.convert_tokens_to_ids('.'),
-        )
+        ]
+        self.special_token_ids = list(set(self.special_token_ids))
         self.max_special_tokens = 7
 
     def get_train_dataloader(self) -> DataLoader:
@@ -923,12 +924,15 @@ class Trainer:
             zero_mask = torch.ones(input_embed.shape[0]).to('cuda')
             
             # assign additional cutoff length to consider special tokens which can be excluded
+            input_id = input_ids[i][:input_len]
+            
             extra_length = 0
             if self.args.exclude_special_tokens:
-                extra_length = self.max_special_tokens
-                if cutoff_length + extra_length > input_len:
-                    extra_length = input_lens - cutoff_length
+                extra_length = int(sum(input_id == st for st in self.special_token_ids).bool().sum().item())
             
+            assert expl.shape == torch.Size([input_len])
+            
+            # get (cutoff_length + extra_length) smallest attribution indices
             _, lowest_indices = torch.topk(expl, cutoff_length + extra_length, largest=False)
             
             if self.args.exclude_special_tokens:
@@ -937,7 +941,6 @@ class Trainer:
                 # check whether lowest attribution tokens are special tokens
                 for j in range(len(lowest_indices)):
                     idx = lowest_indices[j]
-                    input_id = input_ids[i]
                     if input_id[idx] in self.special_token_ids:
                         except_indices.append(j)
                 
@@ -948,7 +951,7 @@ class Trainer:
                 # if not, just extract cutoff_length size vector
                 else:
                     lowest_indices = lowest_indices[:cutoff_length]
-            
+                
             assert lowest_indices.shape == torch.Size([cutoff_length])
             zero_mask[lowest_indices] = 0
                         
