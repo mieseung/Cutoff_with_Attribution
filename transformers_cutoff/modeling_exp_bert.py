@@ -273,33 +273,15 @@ class BertPooler(nn.Module):
         # to the first token.
         self._seq_size = hidden_states.shape[1]
         
-        # first_token_tensor = hidden_states[:, 0]
-        # print("+++ hidden state tensor +++")
-        # print(hidden_states.shape)
         first_token_tensor = hidden_states #[:, 0]
-        # first_token_tensor = self.pool(hidden_states, 1, torch.tensor(0, device=hidden_states.device))
-        # print("+++ first token tensor +++")
-        # print(first_token_tensor.shape)
-        # first_token_tensor = first_token_tensor.squeeze(1)
-        # print(first_token_tensor.shape)
 
         pooled_output = self.dense(first_token_tensor)
         pooled_output = self.activation(pooled_output)
         return pooled_output
     
     def relprop(self, cam, **kwargs):
-        # print("++Pooling relprop cam+++")
-        # print(cam.shape)
         cam = self.activation.relprop(cam, **kwargs)
-        # print("++Pooling relprop cam after activation+++")
-        # print(cam.shape)
-        #print(cam.sum())
         cam = self.dense.relprop(cam, **kwargs)
-        #print(cam.sum())
-        # cam = cam.unsqueeze(1)
-        # cam = self.pool.relprop(cam, **kwargs)
-        #print(cam.sum())
-
         return cam
 
 class BertAttention(nn.Module):
@@ -1024,10 +1006,7 @@ class BertModel(BertPreTrainedModel):
         
     def relprop(self, cam, **kwargs):
         cam = self.pooler.relprop(cam, **kwargs)
-        # print("111111111111",cam.sum())
         cam = self.encoder.relprop(cam, **kwargs)
-        # print("222222222222222", cam.sum())
-        # print("conservation: ", cam.sum())
         return cam
 
     def get_embedding_output(self, input_ids, token_type_ids=None, position_ids=None):
