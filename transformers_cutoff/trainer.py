@@ -219,6 +219,10 @@ class Trainer:
         self.eval_history = []
         self.eval_header = None
         self.eval_key_axis = None
+        
+        self.special_token_ids = None
+        self.max_special_tokens = None
+        
         if not is_tensorboard_available():
             logger.warning(
                 "You are instantiating a Trainer but Tensorboard is not installed. You should consider installing it."
@@ -238,6 +242,21 @@ class Trainer:
             # Set an xla_device flag on the model's config.
             # We'll find a more elegant and not need to do this in the future.
             self.model.config.xla_device = True
+        
+        if self.args.do_train:
+            if self.args.exclude_special_tokens:
+                self._initialize_special_tokens()
+    
+    def _initialize_special_tokens(self):
+        tokenizer = self.attr_tokenizer
+        self.special_token_ids = (
+            tokenizer.cls_token_id,
+            tokenizer.sep_token_id,
+            tokenizer.bos_token_id,
+            tokenizer.eos_token_id,
+            tokenizer.convert_tokens_to_ids('.'),
+        )
+        self.max_special_tokens = 7
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -884,8 +903,9 @@ class Trainer:
         for i in range(embeds.shape[0]):
             input_embed = embeds[i] # 128 x 768
             input_len = input_lens[i]
-            expl_input_id = input_ids[i][:input_len].reshape(1, input_len).to('cuda')
-            expl_attn_mask = attention_masks[i][:input_len].reshape(1, input_len).to('cuda')
+            
+            expl_input_id = input_ids[i][:input_len].unsqueeze(0).to('cuda')
+            expl_attn_mask = attention_masks[i][:input_len].unsqueeze(0).to('cuda')
             
             expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
             
@@ -903,9 +923,33 @@ class Trainer:
                 cutoff_length = 2
             
             zero_mask = torch.ones(input_embed.shape[0]).to('cuda')
-            _, lowest_indices = torch.topk(expl, cutoff_length, largest=False)
+            
+            # assign additional cutoff length to consider special tokens which can be excluded
+            extra_length = 0
+            if self.args.exclude_special_tokens:
+                extra_length = self.max_special_tokens
+                if cutoff_length + extra_length > input_len:
+                    extra_length = input_lens - cutoff_length
+            
+            lowest_values, lowest_indices = torch.topk(expl, cutoff_length + extra_length, largest=False)
             zero_mask[lowest_indices] = 0
             
+            if self.args.exclude_special_tokens:
+                except_indices = []
+                
+                # check whether lowest attribution tokens are special tokens
+                for j in range(len(lowest_values)):
+                    if lowest_values[j] in self.special_token_ids:
+                        except_indices.append(j)
+                
+                # if so, exclude them and extract cutoff_length size vector
+                if except_indices:
+                    lowest_indices = np.delete(lowest_indices, except_indices)[:cutoff_length]
+                
+                # if not, just extract cutoff_length size vector
+                else:
+                    lowest_indices = lowest_indices[:cutoff_length]
+                        
             # set zero for argmax indices
             cutoff_embed = torch.mul(zero_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
             cutoff_mask = torch.mul(zero_mask, attention_masks[i]).type(torch.int64) # (1 x 128) x 128
