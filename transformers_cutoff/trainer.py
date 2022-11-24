@@ -932,7 +932,6 @@ class Trainer:
                     extra_length = input_lens - cutoff_length
             
             lowest_values, lowest_indices = torch.topk(expl, cutoff_length + extra_length, largest=False)
-            zero_mask[lowest_indices] = 0
             
             if self.args.exclude_special_tokens:
                 except_indices = []
@@ -951,6 +950,7 @@ class Trainer:
                     lowest_indices = lowest_indices[:cutoff_length]
             
             assert lowest_indices.shape == torch.Size([cutoff_length])
+            zero_mask[lowest_indices] = 0
                         
             # set zero for argmax indices
             cutoff_embed = torch.mul(zero_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
