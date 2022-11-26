@@ -11,6 +11,7 @@ from typing import Dict, Optional
 import glob
 
 import numpy as np
+import pandas as pd
 
 from transformers_cutoff import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
 from transformers import GlueDataTrainingArguments as DataTrainingArguments
@@ -157,6 +158,13 @@ def main():
 
     if training_args.do_debug:
         eval_dataset = eval_dataset[:100]
+        
+    #! import cutoff indices
+    task = data_args.task_name.upper()
+    if task == "COLA":
+        task = "CoLA"
+    print("GET TOKEN INDICES")
+    cutoff_idx = pd.read_csv("./cutoff_idx/"+task+".tsv", sep="\t")
 
     # training_args.do_aug = model_args.do_aug
     # training_args.aug_type = data_args.aug_type
@@ -168,6 +176,7 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
+        cutoff_idx=cutoff_idx,
     )
 
     # Training
@@ -240,13 +249,15 @@ def main():
             orig_task_name = "CoLA"
         
         model = AutoModelForSequenceClassification.from_pretrained(
-            f"/home/jovyan/work/checkpoint/{orig_task_name}/{checkpoint_aug_type}/",
+            "results/CoLA-roberta_base-cutoff/checkpoint-11500",
+            # f"/home/jovyan/work/checkpoint/{orig_task_name}/{checkpoint_aug_type}/",
             config = config
         )
         test_dataset = test_dataset_class(data_args, tokenizer = tokenizer)
         trainer = Trainer(
             model = model,
             args = training_args,
+            task_name=data_args.task_name,
             compute_metrics = compute_metrics
         )
         predictions, label_ids, metrics = trainer.predict(test_dataset)

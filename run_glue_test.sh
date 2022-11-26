@@ -7,7 +7,7 @@ export GLUE_DIR=$WORK/datasets
 export TASK_NAME=$1
 export NUM_GPU=$2
 export BATCH_SIZE=$3
-export CUTOFF_TYPE="token"
+export CUTOFF_TYPE="token_exp"
 
 CUDA_VISIBLE_DEVICES=$NUM_GPU \
 python run_glue.py \
@@ -17,5 +17,5 @@ python run_glue.py \
   --do_predict \
   --aug_type ${CUTOFF_TYPE}_cutoff \
   --per_gpu_train_batch_size $BATCH_SIZE \
-  --output_dir results/$TASK_NAME-roberta_base-${CUTOFF_TYPE}_cutoff 
+  --output_dir results/$TASK_NAME-roberta_base-cutoff 
   # --overwrite_output_dir
