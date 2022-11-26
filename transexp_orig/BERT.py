@@ -180,13 +180,9 @@ class BertPooler(nn.Module):
 
     def relprop(self, cam, **kwargs):
         cam = self.activation.relprop(cam, **kwargs)
-        #print(cam.sum())
         cam = self.dense.relprop(cam, **kwargs)
-        #print(cam.sum())
         cam = cam.unsqueeze(1)
         cam = self.pool.relprop(cam, **kwargs)
-        #print(cam.sum())
-
         return cam
 
 class BertAttention(nn.Module):
@@ -472,18 +468,10 @@ class BertOutput(nn.Module):
         return hidden_states
 
     def relprop(self, cam, **kwargs):
-        # print("in", cam.sum())
         cam = self.LayerNorm.relprop(cam, **kwargs)
-        #print(cam.sum())
-        # [hidden_states, input_tensor]
         (cam1, cam2)= self.add.relprop(cam, **kwargs)
-        # print("add", cam1.sum(), cam2.sum(), cam1.sum() + cam2.sum())
         cam1 = self.dropout.relprop(cam1, **kwargs)
-        #print(cam1.sum())
         cam1 = self.dense.relprop(cam1, **kwargs)
-        # print("dense", cam1.sum())
-
-        # print("out", cam1.sum() + cam2.sum(), cam1.sum(), cam2.sum())
         return (cam1, cam2)
 
 
@@ -520,13 +508,9 @@ class BertLayer(nn.Module):
 
     def relprop(self, cam, **kwargs):
         (cam1, cam2) = self.output.relprop(cam, **kwargs)
-        # print("output", cam1.sum(), cam2.sum(), cam1.sum() + cam2.sum())
         cam1 = self.intermediate.relprop(cam1, **kwargs)
-        # print("intermediate", cam1.sum())
         cam = self.clone.relprop((cam1, cam2), **kwargs)
-        # print("clone", cam.sum())
         cam = self.attention.relprop(cam, **kwargs)
-        # print("attention", cam.sum())
         return cam
 
 
@@ -644,10 +628,7 @@ class BertModel(BertPreTrainedModel):
 
     def relprop(self, cam, **kwargs):
         cam = self.pooler.relprop(cam, **kwargs)
-        # print("111111111111",cam.sum())
         cam = self.encoder.relprop(cam, **kwargs)
-        # print("222222222222222", cam.sum())
-        # print("conservation: ", cam.sum())
         return cam
 
 

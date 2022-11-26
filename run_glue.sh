@@ -30,4 +30,5 @@ python run_glue.py \
   --per_gpu_train_batch_size $BATCH_SIZE \
   --per_gpu_eval_batch_size $BATCH_SIZE \
   --output_dir results/$TASK_NAME-roberta_base-cutoff \
-  --overwrite_output_dir
+  --overwrite_output_dir \
+  --exclude_special_tokens

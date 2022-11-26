@@ -7,7 +7,7 @@ export GLUE_DIR=$WORK/datasets
 export TASK_NAME=$1
 export NUM_GPU=$2
 export BATCH_SIZE=$3
-export CUTOFF_TYPE="token"
+export CUTOFF_TYPE=$4
 
 CUDA_VISIBLE_DEVICES=$NUM_GPU \
 python run_glue.py \

@@ -57,6 +57,7 @@ class TrainingArguments:
     do_predict: bool = field(default=False, metadata={"help": "Whether to run predictions on the test set."})
     evaluate_during_training: bool = field(default=True, metadata={"help": "Run evaluation during training at each logging step."},)
     do_debug: bool = field(default=False)
+    exclude_special_tokens: bool = field(default=False, metadata={"help": "Exclude special tokens while training"})
 
     per_gpu_train_batch_size: int = field(default=16, metadata={"help": "Batch size per GPU/CPU for training."})
     per_gpu_eval_batch_size: int = field(default=64, metadata={"help": "Batch size per GPU/CPU for evaluation."})

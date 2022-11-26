@@ -1,13 +1,12 @@
 """ Cutoff: A Simple but Tough-to-Beat Data Augmentation Approach for Natural Language Understanding and Generation.  """
 
-import time
 import json
 import logging
 import math
 import os
 import random
-import re
 import shutil
+
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -159,6 +158,7 @@ class Trainer:
 
     model: PreTrainedModel
     args: TrainingArguments
+    task_name: str
     data_collator: DataCollator
     train_dataset: Optional[Dataset]
     eval_dataset: Optional[Dataset]
@@ -220,6 +220,10 @@ class Trainer:
         self.eval_history = []
         self.eval_header = None
         self.eval_key_axis = None
+        
+        self.special_token_ids = None
+        self.max_special_tokens = None
+        
         if not is_tensorboard_available():
             logger.warning(
                 "You are instantiating a Trainer but Tensorboard is not installed. You should consider installing it."
@@ -239,6 +243,22 @@ class Trainer:
             # Set an xla_device flag on the model's config.
             # We'll find a more elegant and not need to do this in the future.
             self.model.config.xla_device = True
+        
+        if self.args.do_train:
+            if self.args.exclude_special_tokens:
+                self._initialize_special_tokens()
+    
+    def _initialize_special_tokens(self):
+        tokenizer = self.attr_tokenizer
+        self.special_token_ids = [
+            tokenizer.cls_token_id,
+            tokenizer.sep_token_id,
+            tokenizer.bos_token_id,
+            tokenizer.eos_token_id,
+            tokenizer.convert_tokens_to_ids('.'),
+        ]
+        self.special_token_ids = list(set(self.special_token_ids))
+        self.max_special_tokens = 7
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -762,7 +782,6 @@ class Trainer:
         for i in range(embeds.shape[0]):
             cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
             start = int(torch.rand(1).to(self.args.device) * (input_lens[i] - cutoff_length))
-            # print(input_lens[i], cutoff_length, start)
             cutoff_embed = torch.cat((embeds[i][:start],
                                       torch.zeros([cutoff_length, embeds.shape[-1]],
                                                   dtype=torch.float).to(self.args.device),
@@ -838,6 +857,8 @@ class Trainer:
         model.train()
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
+        
+        inputs.pop('example_index')
 
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
@@ -884,24 +905,11 @@ class Trainer:
         for i in range(embeds.shape[0]):
             input_embed = embeds[i] # 128 x 768
             input_len = input_lens[i]
-            expl_input_id = input_ids[i][:input_len].reshape(1, input_len).to('cuda')
-            expl_attn_mask = attention_masks[i][:input_len].reshape(1, input_len).to('cuda')
             
-            
-            text = batch_data_segment[i].text_a
-            if batch_data_segment[i].text_b is not None:
-                text += batch_data_segment[i].text_b
-            
-            # print("text : ", text)
-            # print(f"input length : {input_lens[i]}")
-            # print("expl_input_id : ", expl_input_id.shape)
-            # print("expl_attn_mask : ", expl_attn_mask.shape)
-            # time.sleep(2)
+            expl_input_id = input_ids[i][:input_len].unsqueeze(0).to('cuda')
+            expl_attn_mask = attention_masks[i][:input_len].unsqueeze(0).to('cuda')
             
             expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
-            
-            # print(f"{i} : generate_LRP success")
-            # time.sleep(2)
             
             # normalize scores
             expl_copy = expl.data.cpu()
@@ -915,23 +923,47 @@ class Trainer:
                 cutoff_length = 2
             
             zero_mask = torch.ones(input_embed.shape[0]).to('cuda')
-            _, lowest_indices = torch.topk(expl, cutoff_length, largest=False)
-            zero_mask[lowest_indices] = 0
             
+            # assign additional cutoff length to consider special tokens which can be excluded
+            input_id = input_ids[i][:input_len]
+            
+            extra_length = 0
+            if self.args.exclude_special_tokens:
+                extra_length = int(sum(input_id == st for st in self.special_token_ids).bool().sum().item())
+            
+            assert expl.shape == torch.Size([input_len])
+            
+            # get (cutoff_length + extra_length) smallest attribution indices
+            _, lowest_indices = torch.topk(expl, cutoff_length + extra_length, largest=False)
+            
+            if self.args.exclude_special_tokens:
+                except_indices = []
+                
+                # check whether lowest attribution tokens are special tokens
+                for j in range(len(lowest_indices)):
+                    idx = lowest_indices[j]
+                    if input_id[idx] in self.special_token_ids:
+                        except_indices.append(j)
+                
+                # if so, exclude them and extract cutoff_length size vector
+                if except_indices:
+                    lowest_indices = np.delete(lowest_indices, except_indices)[:cutoff_length]
+                
+                # if not, just extract cutoff_length size vector
+                else:
+                    lowest_indices = lowest_indices[:cutoff_length]
+                
+            assert lowest_indices.shape == torch.Size([cutoff_length])
+            zero_mask[lowest_indices] = 0
+                        
             # set zero for argmax indices
             cutoff_embed = torch.mul(zero_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
             cutoff_mask = torch.mul(zero_mask, attention_masks[i]).type(torch.int64) # (1 x 128) x 128
-            cutoff_input_ids = torch.mul(zero_mask, input_ids[i]).type(torch.int64) # (1 x 128) x 128
-            
-            # the cutoff-ed tokens
-            # print("---- cutoff result -----")
-            # print(text)
-            # print(self.attr_tokenizer.convert_ids_to_tokens(input_ids[i]))
-            # print(self.attr_tokenizer.convert_ids_to_tokens(cutoff_input_ids))
 
             input_embeds.append(cutoff_embed)
             input_masks.append(cutoff_mask)
-
+            torch.cuda.empty_cache()
+            
         input_embeds = torch.stack(input_embeds, dim=0)
         input_masks = torch.stack(input_masks, dim=0)
 
@@ -945,7 +977,7 @@ class Trainer:
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
         
-        if hasattr(inputs, 'example_index'):
+        if "example_index" in inputs.keys():
             inputs.pop('example_index')
 
         ori_outputs = model(**inputs)
@@ -961,8 +993,9 @@ class Trainer:
 
         masks = inputs['attention_mask']
         input_lens = torch.sum(masks, dim=1)
-
+        
         input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids, batch_data_segment)
+        
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
                                                                 labels=labels)
@@ -979,6 +1012,8 @@ class Trainer:
             aug_js_loss = js_div(p, q)
             loss += self.args.aug_js_loss * aug_js_loss
 
+        del cutoff_outputs
+        torch.cuda.empty_cache()
         return self._resolve_loss_item(loss, optimizer)
 
     def is_local_master(self) -> bool:
@@ -1180,7 +1215,7 @@ class Trainer:
             for k, v in inputs.items():
                 inputs[k] = v.to(self.args.device)
             
-            if hasattr(inputs, 'example_index'):
+            if "example_index" in inputs.keys():
                 inputs.pop('example_index')
 
             with torch.no_grad():
