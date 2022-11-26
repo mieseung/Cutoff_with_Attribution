@@ -163,6 +163,7 @@ def main():
     task = data_args.task_name.upper()
     if task == "COLA":
         task = "CoLA"
+    print("GET TOKEN INDICES")
     cutoff_idx = pd.read_csv("./cutoff_idx/"+task+".tsv", sep="\t")
 
     # training_args.do_aug = model_args.do_aug
@@ -248,7 +249,8 @@ def main():
             orig_task_name = "CoLA"
         
         model = AutoModelForSequenceClassification.from_pretrained(
-            f"/home/jovyan/work/checkpoint/{orig_task_name}/{checkpoint_aug_type}/",
+            "results/CoLA-roberta_base-cutoff/checkpoint-11500",
+            # f"/home/jovyan/work/checkpoint/{orig_task_name}/{checkpoint_aug_type}/",
             config = config
         )
         test_dataset = test_dataset_class(data_args, tokenizer = tokenizer)

@@ -18,8 +18,6 @@ from transexp_orig.ExplanationGenerator import Generator
 TASKS = ["CoLA", "SST-2", "MRPC", "QQP", "STS-B", "MNLI", "QNLI", "RTE", "WNLI"]
 TOKENS_EXCLUDE = [0, 1, 2, 3, 4] # cls, pad, sep, unk, period
 
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 def parse():
   parser = argparse.ArgumentParser()
@@ -33,12 +31,17 @@ def parse():
                       type=str, default='all')
   parser.add_argument('--cutoff_ratio', help='cutoff ratio',
                       type=float, default=0.1)
+  parser.add_argument('--gpu', help='gpu number',
+                      type=str, default="1")
   
   return parser.parse_args()
 
 
 def main():
   args = parse()
+  
+  os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
+  os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
   
   tasks = TASKS if args.tasks == "all" else args.tasks.replace(" ", "").split(",")
   tokenizer = AutoTokenizer.from_pretrained("roberta-base")
@@ -64,10 +67,10 @@ def main():
     
     if task == "STS-B":
       labels = [float(example.label) for example in examples]
-      print("continuous label")
+      print("label: continuous label")
     else:
       labels = [label_map[example.label] for example in examples]
-      print(label_list)
+      print(f"label: {label_list}")
     print()
     # labels = [label_map[example.label] for example in examples]
 
