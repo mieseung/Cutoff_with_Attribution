@@ -858,8 +858,9 @@ class Trainer:
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
         
-        # inputs.pop('example_index')
-
+        if "example_index" in inputs.keys():
+                inputs.pop('example_index')
+        
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
         loss = 0.0
@@ -1215,8 +1216,8 @@ class Trainer:
             for k, v in inputs.items():
                 inputs[k] = v.to(self.args.device)
             
-            # if "example_index" in inputs.keys():
-            #     inputs.pop('example_index')
+            if "example_index" in inputs.keys():
+                inputs.pop('example_index')
 
             with torch.no_grad():
                 outputs = model(**inputs)
