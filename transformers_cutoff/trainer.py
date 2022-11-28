@@ -195,7 +195,7 @@ class Trainer:
         if self.task=="COLA":
             self.task = "CoLA"
 
-        self.attr_model = BertForSequenceClassification.from_pretrained("roberta-base").to("cuda")
+        self.attr_model = BertForSequenceClassification.from_pretrained(f"/home/jovyan/work/checkpoint/{self.task}/checkpoint_token").to("cuda")
         self.attr_model.eval()
         self.attr_tokenizer = RobertaTokenizer.from_pretrained(f"roberta-base")
         self.attr_explanations = Generator(self.attr_model)
@@ -893,7 +893,7 @@ class Trainer:
 
         return self._resolve_loss_item(loss, optimizer)
     
-    def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens, input_ids, batch_data_segment):
+    def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens, input_ids):
         # generate an explanation for the input
         input_ids = input_ids.to('cuda')
         attention_masks = masks.to('cuda')
@@ -994,7 +994,7 @@ class Trainer:
         masks = inputs['attention_mask']
         input_lens = torch.sum(masks, dim=1)
         
-        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids, batch_data_segment)
+        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids)
         
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
