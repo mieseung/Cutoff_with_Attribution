@@ -858,7 +858,7 @@ class Trainer:
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
         
-        inputs.pop('example_index')
+        # inputs.pop('example_index')
 
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
@@ -893,7 +893,7 @@ class Trainer:
 
         return self._resolve_loss_item(loss, optimizer)
     
-    def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens, input_ids):
+    def generate_token_exp_cutoff_embedding(self, example_indices, embeds, masks, input_lens, input_ids):
         # generate an explanation for the input
         input_ids = input_ids.to('cuda')
         attention_masks = masks.to('cuda')
@@ -903,6 +903,7 @@ class Trainer:
         os.environ['CUDA_LAUNCH_BLOCKING'] = "1" # for debugging
 
         for i in range(embeds.shape[0]):
+            example_index = example_indices[i]
             input_embed = embeds[i] # 128 x 768
             input_len = input_lens[i]
             
@@ -977,8 +978,7 @@ class Trainer:
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
         
-        if "example_index" in inputs.keys():
-            inputs.pop('example_index')
+        example_indices = inputs.pop("example_index")
 
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
@@ -994,7 +994,7 @@ class Trainer:
         masks = inputs['attention_mask']
         input_lens = torch.sum(masks, dim=1)
         
-        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids)
+        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(example_indices, embeds, masks, input_lens, input_ids)
         
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,
@@ -1215,8 +1215,8 @@ class Trainer:
             for k, v in inputs.items():
                 inputs[k] = v.to(self.args.device)
             
-            if "example_index" in inputs.keys():
-                inputs.pop('example_index')
+            # if "example_index" in inputs.keys():
+            #     inputs.pop('example_index')
 
             with torch.no_grad():
                 outputs = model(**inputs)

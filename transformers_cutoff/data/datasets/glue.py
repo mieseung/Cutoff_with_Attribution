@@ -122,6 +122,7 @@ class GlueDataset(Dataset):
                     label_list=label_list,
                     output_mode=self.output_mode,
                 )
+
                 start = time.time()
                 torch.save(self.features, cached_features_file)
                 # ^ This seems to take a lot of time so I want to investigate why and how we can improve.
