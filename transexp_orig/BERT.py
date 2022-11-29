@@ -7,7 +7,7 @@ import math
 from transformers import BertConfig
 from transformers.modeling_outputs import BaseModelOutputWithPooling, BaseModelOutput
 from transexp_orig.layers import *
-from transformers import (
+from transformers_cutoff import (
     BertPreTrainedModel,
     PreTrainedModel,
 )
@@ -543,7 +543,7 @@ class BertModel(BertPreTrainedModel):
             encoder_attention_mask=None,
             output_attentions=None,
             output_hidden_states=None,
-            return_dict=None,
+            return_dict={},
     ):
         r"""
         encoder_hidden_states  (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`):
@@ -627,7 +627,7 @@ class BertModel(BertPreTrainedModel):
         )
 
     def relprop(self, cam, **kwargs):
-        cam = self.pooler.relprop(cam, **kwargs)
+        # cam = self.pooler.relprop(cam, **kwargs) #TODO Pooler relprop에서 
         cam = self.encoder.relprop(cam, **kwargs)
         return cam
 

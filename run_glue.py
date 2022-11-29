@@ -11,6 +11,7 @@ from typing import Dict, Optional
 import glob
 
 import numpy as np
+import pandas as pd
 
 from transformers_cutoff import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
 from transformers import GlueDataTrainingArguments as DataTrainingArguments
@@ -45,6 +46,13 @@ class ModelArguments:
     cache_dir: Optional[str] = field(
         default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
+    attr_ind_type: Optional[str] = field(
+        default="excluded", choices=["excluded", "all_tokens"],metadata={"help": "Attribution indices type"}
+    )
+    use_cached_ids: Optional[str] = field(
+        default=True, metadata={"help": "Use cached ids"}
+    )
+    
 
 
 def main():
@@ -161,6 +169,12 @@ def main():
     # training_args.do_aug = model_args.do_aug
     # training_args.aug_type = data_args.aug_type
     # Initialize our Trainer
+    
+    if model_args.attr_ind_type == "all_tokens":
+        attr_key = "cutoff_idx_all_tokens"
+    else:
+        attr_key = "cutoff_idx_excluded"
+        
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -168,6 +182,8 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
+        attr_key=attr_key,
+        use_cached_ids=model_args.use_cached_ids
     )
 
     # Training
