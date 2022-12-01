@@ -33,6 +33,8 @@ from .trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction, PredictionOutp
 from .training_args import TrainingArguments, is_tpu_available
 from utils import report_results
 
+from transformers_cutoff.data.datasets.glue import GlueDataTrainingArguments
+
 from .modeling_roberta import RobertaForMaskedLM, RobertaForSequenceClassification
 
 try:
@@ -172,11 +174,12 @@ class Trainer:
     def __init__(
         self,
         model: PreTrainedModel,
-        args: TrainingArguments,
+        args: GlueDataTrainingArguments,
         task_name: str,
         attr_model_type: str,
         min_cutoff_token: int,
         # attr_key: Optional[str] = None,
+        max_seq_length: int,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
         eval_dataset: Optional[Dataset] = None,
@@ -213,6 +216,7 @@ class Trainer:
         self.attr_explanations = Generator(self.attr_model)
         
         self.min_cutoff_token = min_cutoff_token
+        self.max_seq_length = max_seq_length
         
         #! original code starts from here
         self.model = model.to(args.device)
@@ -275,6 +279,11 @@ class Trainer:
         ]))
         # self.special_token_ids = list(set(self.special_token_ids))
         self.max_special_tokens = 7
+        
+    def _initialize_cutoff_index_array(self, dataset_size: int):
+        max_cutoff_length = int(self.max_seq_length * self.args.aug_cutoff_ratio)
+        self.saved_cutoff_idx = np.zeros((dataset_size, max_cutoff_length))
+        self.saved_cutoff_idx.fill(-1)
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -528,6 +537,8 @@ class Trainer:
         train_iterator = trange(
             epochs_trained, int(num_train_epochs), desc="Epoch", disable=not self.is_local_master()
         )
+        
+        self._initialize_cutoff_index_array(len(train_dataloader.dataset)) 
 
         self.eval_history = []
         for epoch in train_iterator:
@@ -940,12 +951,9 @@ class Trainer:
                 else:
                     expl_exclude.append(expl[i])
                     
-            expl_exclude = torch.tensor(expl_exclude)
+            expl = torch.tensor(expl_exclude)
             
-            return torch.topk(expl_exclude, cutoff_length, largest=False).indices
-        
-        else:
-            return torch.topk(expl, cutoff_length, largest=False).indices
+        return torch.topk(expl, cutoff_length, largest=False).indices
     
     def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens, input_ids, epoch, example_indices=None):
         # generate an explanation for the input
@@ -959,17 +967,26 @@ class Trainer:
         if epoch==1:
             save_mask = True
 
-        for i in range(embeds.shape[0]):
+        batch_size = embeds.size(0)
+        batch_iterator = tqdm(range(batch_size), desc="batch", leave=False, ascii=True) if epoch == 0 else range(batch_size)
+        for i in batch_iterator:
+        # for i in range(embeds.shape[0]):
             if example_indices is not None:
                 example_index = example_indices[i]
             input_embed = embeds[i] # 128 x 768
             input_len = input_lens[i]
             
-            cutoff_idx = self.calculate_token_exp_idx(input_ids, input_embed, attention_masks, input_len, i)
-                
+            if epoch == 0:
+                lowest_indices = self.calculate_token_exp_idx(input_ids, input_embed, attention_masks, input_len, i)
+                cutoff_idx = lowest_indices.cpu().numpy()
+                self.saved_cutoff_idx[example_index, :len(cutoff_idx)] = cutoff_idx
+            else:
+                cutoff_idx = self.saved_cutoff_idx[example_index]
+                cutoff_idx = cutoff_idx[: list(cutoff_idx).index(-1)]   # remove padding
+                lowest_indices = torch.LongTensor(cutoff_idx)
             
             tmp_mask = torch.ones(input_embed.shape[0], ).cuda() #.to(self.args.device)
-            for ind in cutoff_idx:
+            for ind in lowest_indices:
                 tmp_mask[ind] = 0
             
             cutoff_embed = torch.mul(tmp_mask[:, None], input_embed) # (128 x 1) x (128 x 728)

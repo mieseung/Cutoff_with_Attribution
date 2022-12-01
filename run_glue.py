@@ -190,7 +190,8 @@ def main():
         compute_metrics=compute_metrics,
         # attr_key=attr_key,
         attr_model_type=model_args.attr_model_type,
-        min_cutoff_token=model_args.min_cutoff_token
+        min_cutoff_token=model_args.min_cutoff_token,
+        max_seq_length=data_args.max_seq_length
     )
 
     # Training
