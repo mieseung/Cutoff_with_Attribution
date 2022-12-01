@@ -9,6 +9,7 @@ export TASK_NAME=$1
 export NUM_GPU=$2
 export BATCH_SIZE=$3
 export CUTOFF_TYPE=$4
+export EXCLUDE=$5
 
 CUDA_VISIBLE_DEVICES=$NUM_GPU \
 python run_glue.py \
@@ -29,6 +30,6 @@ python run_glue.py \
   --save_steps 500 \
   --per_gpu_train_batch_size $BATCH_SIZE \
   --per_gpu_eval_batch_size $BATCH_SIZE \
-  --output_dir results/$TASK_NAME-roberta_base-cutoff \
+  --output_dir results/$TASK_NAME-$EXCLUDE-roberta_base-cutoff \
   --overwrite_output_dir \
   --exclude_special_tokens
