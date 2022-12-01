@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 import torch
+import transformers
 from tqdm import tqdm
 import pandas as pd
 
@@ -18,7 +19,8 @@ from transexp_orig.ExplanationGenerator import Generator
 from transexp_orig.BertForSequenceClassification import BertForSequenceClassification
 
 TASKS = ["CoLA", "SST-2", "MRPC", "QQP", "STS-B", "MNLI", "QNLI", "RTE", "WNLI"]
-random.seed(1)
+
+transformers.enable_full_determinism(1)
 
 def parse():
   parser = argparse.ArgumentParser()

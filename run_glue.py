@@ -11,7 +11,7 @@ from typing import Dict, Optional
 import glob
 
 import numpy as np
-import pandas as pd
+import transformers
 
 from transformers_cutoff import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction, GlueDataset, GlueAugDataset, GlueTestDataset
 from transformers import GlueDataTrainingArguments as DataTrainingArguments
@@ -47,10 +47,13 @@ class ModelArguments:
         default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
     attr_ind_type: Optional[str] = field(
-        default="excluded", choices=["excluded", "all_tokens"],metadata={"help": "Attribution indices type"}
+        default="excluded", metadata={"help": "Attribution indices type"} #choices=["excluded", "all_tokens"],
     )
-    use_cached_ids: Optional[str] = field(
-        default=True, metadata={"help": "Use cached ids"}
+    attr_model_type: Optional[str] = field(
+        default="roberta", metadata={"help": "Attribution indices type"} #choices=["roberta", "bert"],
+    )
+    min_cutoff_token: Optional[str] = field(
+        default=1, metadata={"help": "Minimum cutoff token number"}
     )
     
 
@@ -60,6 +63,9 @@ def main():
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
 
+    #* for reproduce, set random seed to transformer
+    transformers.enable_full_determinism(1)
+    
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
@@ -170,10 +176,10 @@ def main():
     # training_args.aug_type = data_args.aug_type
     # Initialize our Trainer
     
-    if model_args.attr_ind_type == "all_tokens":
-        attr_key = "cutoff_idx_all_tokens"
-    else:
-        attr_key = "cutoff_idx_excluded"
+    # if model_args.attr_ind_type == "all_tokens":
+    #     attr_key = "cutoff_idx_all_tokens"
+    # else:
+    #     attr_key = "cutoff_idx_excluded"
         
     trainer = Trainer(
         model=model,
@@ -182,8 +188,9 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
-        attr_key=attr_key,
-        use_cached_ids=model_args.use_cached_ids
+        # attr_key=attr_key,
+        attr_model_type=model_args.attr_model_type,
+        min_cutoff_token=model_args.min_cutoff_token
     )
 
     # Training

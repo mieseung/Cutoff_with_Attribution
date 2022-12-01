@@ -5,8 +5,6 @@ import glob
 import time
 import copy
 
-from transexp_orig.BertForSequenceClassification import BertForSequenceClassification
-from transexp_orig.RobertaForSequenceClassification import RobertaForSequenceClassification
 
 
 # compute rollout between attention layers
@@ -63,9 +61,9 @@ class Generator:
 
         cams = []
         
-        if self.model.__class__ == BertForSequenceClassification:
+        if self.model.__class__.__name__ == "BertForSequenceClassification":
             blocks = self.model.bert.encoder.layer
-        elif self.model.__class__ == RobertaForSequenceClassification:
+        elif self.model.__class__.__name__  == "RobertaForSequenceClassification":
             blocks = self.model.roberta.encoder.layer
         else:
             Exception(f"Invalid model type: {self.model.__class__}")
