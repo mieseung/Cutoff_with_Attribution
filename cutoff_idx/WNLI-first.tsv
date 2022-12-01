@@ -1,0 +1,11 @@
+example_index	cutoff_idx_excluded	cutoff_idx_all_tokens	cutoff_tokens
+0	[12, 13, 4]	[0, 12, 13]	['Ġthe', 'Ġpin', 'Ġpin']
+1	[1, 15]	[0, 1]	['ĠJohn', 'Ġis']
+2	[17, 12, 27]	[0, 17, 12]	['Ġtrade', 'Ġtrying', 'Ġtrying']
+3	[4, 10]	[0, 4]	"[""'s"", 'Ġinfluences']"
+4	[3, 2, 23, 17, 27]	[0, 3, 2, 23, 17]	['y', 'ĠTat', 'ressing', 'Ġnot', 'Ġinto']
+5	[18, 3, 16]	[0, 18, 3]	['Ġwas', 'Ġfree', 'Ġbecause']
+6	[3, 27, 21]	[0, 3, 27]	['Ġj', 'Ġvery', 'Ġimpressive']
+7	[11, 12]	[0, 11]	['Ġit', 'Ġwas']
+8	[17, 26, 25, 24]	[0, 17, 26, 25]	['ium', 'Ġthem', 'Ġof', 'Ġenough']
+9	[23, 20, 1]	[0, 23, 20]	['Ġadvanced', 'Ġthey', 'ĠAt']

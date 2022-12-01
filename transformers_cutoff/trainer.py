@@ -22,7 +22,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data.sampler import RandomSampler, Sampler, SequentialSampler
 from tqdm.auto import tqdm, trange
 
-from transexp_orig.BertForSequenceClassification import BertForSequenceClassification
+# from transexp_orig.BertForSequenceClassification import BertForSequenceClassification
 from transexp_orig.ExplanationGenerator import Generator
 from transformers import AutoTokenizer, RobertaTokenizer
 
@@ -32,6 +32,8 @@ from .optimization import AdamW, get_linear_schedule_with_warmup
 from .trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction, PredictionOutput, TrainOutput
 from .training_args import TrainingArguments, is_tpu_available
 from utils import report_results
+
+from transformers_cutoff.data.datasets.glue import GlueDataTrainingArguments
 
 from .modeling_roberta import RobertaForMaskedLM, RobertaForSequenceClassification
 
@@ -172,8 +174,12 @@ class Trainer:
     def __init__(
         self,
         model: PreTrainedModel,
-        args: TrainingArguments,
+        args: GlueDataTrainingArguments,
         task_name: str,
+        attr_model_type: str,
+        min_cutoff_token: int,
+        # attr_key: Optional[str] = None,
+        max_seq_length: int,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
         eval_dataset: Optional[Dataset] = None,
@@ -194,11 +200,23 @@ class Trainer:
         self.task = task_name.upper()
         if self.task=="COLA":
             self.task = "CoLA"
-
-        self.attr_model = BertForSequenceClassification.from_pretrained("roberta-base").to("cuda")
+            
+        # self.attr_key = attr_key
+        
+        pretrain_path = "/home/jovyan/work/checkpoint/" + self.task + "/checkpoint_token/"
+        if attr_model_type == "roberta":
+            from transexp_orig.RobertaForSequenceClassification import RobertaForSequenceClassification
+            self.attr_model = RobertaForSequenceClassification.from_pretrained(pretrain_path).to("cuda")
+        elif attr_model_type == "bert":
+            from transexp_orig.BertForSequenceClassification import BertForSequenceClassification
+            self.attr_model = BertForSequenceClassification.from_pretrained(pretrain_path).to("cuda")
+        
         self.attr_model.eval()
-        self.attr_tokenizer = RobertaTokenizer.from_pretrained(f"roberta-base")
+        self.attr_tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
         self.attr_explanations = Generator(self.attr_model)
+        
+        self.min_cutoff_token = min_cutoff_token
+        self.max_seq_length = max_seq_length
         
         #! original code starts from here
         self.model = model.to(args.device)
@@ -250,15 +268,22 @@ class Trainer:
     
     def _initialize_special_tokens(self):
         tokenizer = self.attr_tokenizer
-        self.special_token_ids = [
+        self.special_token_ids = list(set([
             tokenizer.cls_token_id,
+            tokenizer.pad_token_id,
             tokenizer.sep_token_id,
+            tokenizer.unk_token_id,
             tokenizer.bos_token_id,
             tokenizer.eos_token_id,
-            tokenizer.convert_tokens_to_ids('.'),
-        ]
-        self.special_token_ids = list(set(self.special_token_ids))
+            tokenizer.convert_tokens_to_ids(".")
+        ]))
+        # self.special_token_ids = list(set(self.special_token_ids))
         self.max_special_tokens = 7
+        
+    def _initialize_cutoff_index_array(self, dataset_size: int):
+        max_cutoff_length = int(self.max_seq_length * self.args.aug_cutoff_ratio)
+        self.saved_cutoff_idx = np.zeros((dataset_size, max_cutoff_length))
+        self.saved_cutoff_idx.fill(-1)
 
     def get_train_dataloader(self) -> DataLoader:
         if self.train_dataset is None:
@@ -512,6 +537,8 @@ class Trainer:
         train_iterator = trange(
             epochs_trained, int(num_train_epochs), desc="Epoch", disable=not self.is_local_master()
         )
+        
+        self._initialize_cutoff_index_array(len(train_dataloader.dataset)) 
 
         self.eval_history = []
         for epoch in train_iterator:
@@ -537,7 +564,7 @@ class Trainer:
                     elif self.args.aug_type == 'dim_cutoff':
                         step_loss = self._training_step_with_dim_cutoff(model, inputs, optimizer)
                     elif self.args.aug_type == 'token_exp_cutoff':
-                        step_loss = self._training_step_with_token_exp_cutoff(model, inputs, optimizer, batch_data_segment)
+                        step_loss = self._training_step_with_token_exp_cutoff(model, inputs, optimizer, batch_data_segment, epoch)
                     else:
                         raise NotImplementedError
                 else:
@@ -893,7 +920,42 @@ class Trainer:
 
         return self._resolve_loss_item(loss, optimizer)
     
-    def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens, input_ids, batch_data_segment):
+    def calculate_token_exp_idx(self, input_ids, input_embed, attention_mask, input_len, i):
+        expl = self.attr_explanations.generate_LRP(input_ids=input_ids, attention_mask=attention_mask, start_layer=0)[0]
+        # normalize scores
+        expl_copy = expl.data.cpu()
+        del expl
+        torch.cuda.empty_cache()
+        
+        expl = (expl_copy - expl_copy.min()) / (expl_copy.max() - expl_copy.min())
+        cutoff_length = int(input_len * self.args.aug_cutoff_ratio)
+        
+        if cutoff_length < self.min_cutoff_token:
+            cutoff_length = self.min_cutoff_token
+        
+        zero_mask = torch.ones(input_embed.shape[0]).to('cuda')
+        
+        # assign additional cutoff length to consider special tokens which can be excluded
+        input_id = input_ids[i][:input_len]
+        
+        extra_length = 0
+        if self.args.exclude_special_tokens:
+            extra_length = int(sum(input_id == st for st in self.special_token_ids).bool().sum().item())
+        
+        expl = expl[:input_len]
+        if self.args.exclude_special_tokens:
+            expl_exclude = []
+            for i in range(input_id.shape[0]):
+                if input_id[i] in self.special_token_ids:
+                    expl_exclude.append(100)
+                else:
+                    expl_exclude.append(expl[i])
+                    
+            expl = torch.tensor(expl_exclude)
+            
+        return torch.topk(expl, cutoff_length, largest=False).indices
+    
+    def generate_token_exp_cutoff_embedding(self, embeds, masks, input_lens, input_ids, epoch, example_indices=None):
         # generate an explanation for the input
         input_ids = input_ids.to('cuda')
         attention_masks = masks.to('cuda')
@@ -902,84 +964,57 @@ class Trainer:
         input_masks = []
         os.environ['CUDA_LAUNCH_BLOCKING'] = "1" # for debugging
 
-        for i in range(embeds.shape[0]):
+        if epoch==1:
+            save_mask = True
+
+        batch_size = embeds.size(0)
+        batch_iterator = tqdm(range(batch_size), desc="batch", leave=False, ascii=True) if epoch == 0 else range(batch_size)
+        for i in batch_iterator:
+        # for i in range(embeds.shape[0]):
+            if example_indices is not None:
+                example_index = example_indices[i]
             input_embed = embeds[i] # 128 x 768
             input_len = input_lens[i]
             
-            expl_input_id = input_ids[i][:input_len].unsqueeze(0).to('cuda')
-            expl_attn_mask = attention_masks[i][:input_len].unsqueeze(0).to('cuda')
+            if epoch == 0:
+                lowest_indices = self.calculate_token_exp_idx(input_ids, input_embed, attention_masks, input_len, i)
+                cutoff_idx = lowest_indices.cpu().numpy()
+                self.saved_cutoff_idx[example_index, :len(cutoff_idx)] = cutoff_idx
+            else:
+                cutoff_idx = self.saved_cutoff_idx[example_index]
+                cutoff_idx = cutoff_idx[: list(cutoff_idx).index(-1)]   # remove padding
+                lowest_indices = torch.LongTensor(cutoff_idx)
             
-            expl = self.attr_explanations.generate_LRP(input_ids=expl_input_id, attention_mask=expl_attn_mask, start_layer=0)[0]
+            tmp_mask = torch.ones(input_embed.shape[0], ).cuda() #.to(self.args.device)
+            for ind in lowest_indices:
+                tmp_mask[ind] = 0
             
-            # normalize scores
-            expl_copy = expl.data.cpu()
-            del expl
-            torch.cuda.empty_cache()
+            cutoff_embed = torch.mul(tmp_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
+            cutoff_mask = torch.mul(tmp_mask, attention_masks[i]).type(torch.int64) # (1 x 128) x 128
             
-            expl = (expl_copy - expl_copy.min()) / (expl_copy.max() - expl_copy.min())
-            cutoff_length = int(input_lens[i] * self.args.aug_cutoff_ratio)
-            
-            if cutoff_length <= 1:
-                cutoff_length = 2
-            
-            zero_mask = torch.ones(input_embed.shape[0]).to('cuda')
-            
-            # assign additional cutoff length to consider special tokens which can be excluded
-            input_id = input_ids[i][:input_len]
-            
-            extra_length = 0
-            if self.args.exclude_special_tokens:
-                extra_length = int(sum(input_id == st for st in self.special_token_ids).bool().sum().item())
-            
-            assert expl.shape == torch.Size([input_len])
-            
-            # get (cutoff_length + extra_length) smallest attribution indices
-            _, lowest_indices = torch.topk(expl, cutoff_length + extra_length, largest=False)
-            
-            if self.args.exclude_special_tokens:
-                except_indices = []
-                
-                # check whether lowest attribution tokens are special tokens
-                for j in range(len(lowest_indices)):
-                    idx = lowest_indices[j]
-                    if input_id[idx] in self.special_token_ids:
-                        except_indices.append(j)
-                
-                # if so, exclude them and extract cutoff_length size vector
-                if except_indices:
-                    lowest_indices = np.delete(lowest_indices, except_indices)[:cutoff_length]
-                
-                # if not, just extract cutoff_length size vector
-                else:
-                    lowest_indices = lowest_indices[:cutoff_length]
-                
-            assert lowest_indices.shape == torch.Size([cutoff_length])
-            zero_mask[lowest_indices] = 0
-                        
-            # set zero for argmax indices
-            cutoff_embed = torch.mul(zero_mask[:, None], input_embed) # (128 x 1) x (128 x 728)
-            cutoff_mask = torch.mul(zero_mask, attention_masks[i]).type(torch.int64) # (1 x 128) x 128
-
             input_embeds.append(cutoff_embed)
             input_masks.append(cutoff_mask)
             torch.cuda.empty_cache()
             
         input_embeds = torch.stack(input_embeds, dim=0)
         input_masks = torch.stack(input_masks, dim=0)
-
+        
+        
         return input_embeds, input_masks
+
     
     def _training_step_with_token_exp_cutoff(
-        self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer, batch_data_segment
+        self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer, batch_data_segment, epoch
     ) -> float:
         
         model.train()
         for k, v in inputs.items():
             inputs[k] = v.to(self.args.device)
         
+        example_indices = None
         if "example_index" in inputs.keys():
-            inputs.pop('example_index')
-
+            example_indices = inputs.pop("example_index")
+        
         ori_outputs = model(**inputs)
         #loss = ori_outputs[0]  # model outputs are always tuple in transformers (see doc)
         loss = 0.0
@@ -994,7 +1029,7 @@ class Trainer:
         masks = inputs['attention_mask']
         input_lens = torch.sum(masks, dim=1)
         
-        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids, batch_data_segment)
+        input_embeds, input_masks = self.generate_token_exp_cutoff_embedding(embeds, masks, input_lens, input_ids, epoch, example_indices)
         
         cutoff_outputs = model.get_logits_from_embedding_output(embedding_output=input_embeds,
                                                                 attention_mask=input_masks,

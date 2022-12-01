@@ -5,6 +5,8 @@ import glob
 import time
 import copy
 
+
+
 # compute rollout between attention layers
 def compute_rollout_attention(all_layer_matrices, start_layer=0):
     # adding residual consideration- code adapted from https://github.com/samiraabnar/attention_flow
@@ -58,7 +60,14 @@ class Generator:
         torch.cuda.empty_cache()
 
         cams = []
-        blocks = self.model.bert.encoder.layer
+        
+        if self.model.__class__.__name__ == "BertForSequenceClassification":
+            blocks = self.model.bert.encoder.layer
+        elif self.model.__class__.__name__  == "RobertaForSequenceClassification":
+            blocks = self.model.roberta.encoder.layer
+        else:
+            Exception(f"Invalid model type: {self.model.__class__}")
+            
         for blk in blocks:
             grad = blk.attention.self.get_attn_gradients()
             cam = blk.attention.self.get_attn_cam()
