@@ -964,9 +964,6 @@ class Trainer:
         input_masks = []
         os.environ['CUDA_LAUNCH_BLOCKING'] = "1" # for debugging
 
-        if epoch==1:
-            save_mask = True
-
         batch_size = embeds.size(0)
         batch_iterator = tqdm(range(batch_size), desc="batch", leave=False, ascii=True) if epoch == 0 else range(batch_size)
         for i in batch_iterator:
