@@ -3,13 +3,13 @@
 # $2: number of GPU to use
 # $3: batch size 
 
-export GLUE_DIR=$WORK/datasets
+export GLUE_DIR=/home/jovyan/work/datasets
 export TASK_NAME=$1
-export EXCLUDE=$2
-export NUM_GPU=$3
+export NUM_GPU=$2
 export BATCH_SIZE=16
-export CUTOFF_TYPE=$4
-export CKPT_STEP=$5
+export CUTOFF_TYPE=$3
+export CKPT_STEP=$4
+export EXCLUDE=$5
 
 CUDA_VISIBLE_DEVICES=$NUM_GPU \
 python run_glue.py \
