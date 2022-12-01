@@ -982,7 +982,8 @@ class Trainer:
                 self.saved_cutoff_idx[example_index, :len(cutoff_idx)] = cutoff_idx
             else:
                 cutoff_idx = self.saved_cutoff_idx[example_index]
-                cutoff_idx = cutoff_idx[: list(cutoff_idx).index(-1)]   # remove padding
+                if -1 in list(cutoff_idx):
+                    cutoff_idx = cutoff_idx[: list(cutoff_idx).index(-1)]   # remove padding
                 lowest_indices = torch.LongTensor(cutoff_idx)
             
             tmp_mask = torch.ones(input_embed.shape[0], ).cuda() #.to(self.args.device)

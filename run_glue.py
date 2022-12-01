@@ -272,7 +272,10 @@ def main():
             model = model,
             task_name=data_args.task_name,
             args = training_args,
-            compute_metrics = compute_metrics
+            compute_metrics = compute_metrics,
+            attr_model_type=model_args.attr_model_type,
+            min_cutoff_token=model_args.min_cutoff_token,
+            max_seq_length=data_args.max_seq_length
         )
         predictions, label_ids, metrics = trainer.predict(test_dataset)
         logger.info("****** Prediction Result *******")
