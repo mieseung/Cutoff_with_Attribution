@@ -10,6 +10,7 @@ export NUM_GPU=$2
 export BATCH_SIZE=$3
 export CUTOFF_TYPE=$4
 export EXCLUDE=$5
+export CUTOFF_RATIO=$6
 
 CUDA_VISIBLE_DEVICES=$NUM_GPU \
 python run_glue.py \
@@ -21,7 +22,7 @@ python run_glue.py \
   --evaluate_during_training \
   --do_aug \
   --aug_type ${CUTOFF_TYPE}_cutoff \
-  --aug_cutoff_ratio 0.1 \
+  --aug_cutoff_ratio ${CUTOFF_RATIO} \
   --aug_ce_loss 1.0 \
   --aug_js_loss 1.0 \
   --learning_rate 5e-6 \
@@ -30,6 +31,6 @@ python run_glue.py \
   --save_steps 500 \
   --per_gpu_train_batch_size $BATCH_SIZE \
   --per_gpu_eval_batch_size $BATCH_SIZE \
-  --output_dir results/$TASK_NAME-$EXCLUDE-roberta_base-cutoff \
+  --output_dir results/$TASK_NAME-$EXCLUDE-roberta_base-cutoff-$CUTOFF_RATIO \
   --overwrite_output_dir \
   --exclude_special_tokens
