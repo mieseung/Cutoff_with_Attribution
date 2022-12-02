@@ -964,9 +964,6 @@ class Trainer:
         input_masks = []
         os.environ['CUDA_LAUNCH_BLOCKING'] = "1" # for debugging
 
-        if epoch==1:
-            save_mask = True
-
         batch_size = embeds.size(0)
         batch_iterator = tqdm(range(batch_size), desc="batch", leave=False, ascii=True) if epoch == 0 else range(batch_size)
         for i in batch_iterator:
@@ -982,7 +979,8 @@ class Trainer:
                 self.saved_cutoff_idx[example_index, :len(cutoff_idx)] = cutoff_idx
             else:
                 cutoff_idx = self.saved_cutoff_idx[example_index]
-                cutoff_idx = cutoff_idx[: list(cutoff_idx).index(-1)]   # remove padding
+                if -1 in list(cutoff_idx):
+                    cutoff_idx = cutoff_idx[: list(cutoff_idx).index(-1)]   # remove padding
                 lowest_indices = torch.LongTensor(cutoff_idx)
             
             tmp_mask = torch.ones(input_embed.shape[0], ).cuda() #.to(self.args.device)

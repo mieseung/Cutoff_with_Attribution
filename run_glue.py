@@ -55,6 +55,9 @@ class ModelArguments:
     min_cutoff_token: Optional[str] = field(
         default=1, metadata={"help": "Minimum cutoff token number"}
     )
+    saved_dir: str = field(
+        default=None,
+    )
     
 
 
@@ -257,22 +260,25 @@ def main():
     
     elif training_args.do_predict:
         
-        checkpoint_aug_type = "checkpoint_token" if training_args.aug_type == "token_cutoff" else "checkpoint_span"
         orig_task_name = data_args.task_name.upper()
         
         if orig_task_name == "COLA":
             orig_task_name = "CoLA"
         
         model = AutoModelForSequenceClassification.from_pretrained(
-            f"/home/jovyan/work/checkpoint/{orig_task_name}/{checkpoint_aug_type}/",
+            model_args.saved_dir,
             config = config
         )
+        
         test_dataset = test_dataset_class(data_args, tokenizer = tokenizer)
         trainer = Trainer(
             model = model,
             task_name=data_args.task_name,
             args = training_args,
-            compute_metrics = compute_metrics
+            compute_metrics = compute_metrics,
+            attr_model_type=model_args.attr_model_type,
+            min_cutoff_token=model_args.min_cutoff_token,
+            max_seq_length=data_args.max_seq_length
         )
         predictions, label_ids, metrics = trainer.predict(test_dataset)
         logger.info("****** Prediction Result *******")
