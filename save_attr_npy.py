@@ -165,7 +165,7 @@ def main():
     # for i in range(5):
     for i in tqdm(range(len(features))):
       
-      if i%500==0 and i!=0:
+      if i%1000==0 and i!=0:
         print(f"save tmp file at step {i}")
         np.save(str(args.save_dir / f"{task}_{str_exclude_st}_{args.cutoff_ratio}-tmp.npy"), saved_cutoff_idx)
       
