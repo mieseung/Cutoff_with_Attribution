@@ -41,7 +41,7 @@ def parse():
   parser.add_argument('--tasks', help='tasks to download data for as a comma separated string',
                       type=str, default='all')
   parser.add_argument('--cutoff_ratio', help='cutoff ratio',
-                      type=float, default=0.1)
+                      type=list, default=[0.1, 0.05])
   parser.add_argument('--min_cutoff_token', help='minimum cutoff token',
                       type=int, default=1)
   parser.add_argument('--gpu', help='gpu number',
@@ -110,11 +110,7 @@ def calculate_token_exp_idx(explanations, input_ids, input_embed, attention_mask
   torch.cuda.empty_cache()
 
   expl = (expl_copy - expl_copy.min()) / (expl_copy.max() - expl_copy.min())
-  cutoff_length = int(input_len * args.cutoff_ratio)
-
-  if cutoff_length < args.min_cutoff_token:
-      cutoff_length = args.min_cutoff_token
-
+  
   zero_mask = torch.ones(input_embed.shape[0]).to('cuda')
 
   # assign additional cutoff length to consider special tokens which can be excluded
@@ -131,14 +127,29 @@ def calculate_token_exp_idx(explanations, input_ids, input_embed, attention_mask
               
       expl = torch.tensor(expl_exclude)
       
-  return torch.topk(expl, cutoff_length, largest=False).indices
+      
+  cutoff_idx_list = []
+  
+  for cutoff_ratio in args.cutoff_ratio:
+    cutoff_length = int(input_len * cutoff_ratio)
+
+    if cutoff_length < args.min_cutoff_token:
+        cutoff_length = args.min_cutoff_token
+
+    cutoff_idx_list.append(torch.topk(expl, cutoff_length, largest=False).indices)
+      
+  return cutoff_idx_list
     
 
 def initialize_cutoff_index_array(dataset_size, args):
-  max_cutoff_length = int(MAX_SEQ_LENGTH * args.cutoff_ratio)
-  saved_cutoff_idx = np.zeros((dataset_size, max_cutoff_length), dtype=int)
-  saved_cutoff_idx.fill(-1)
-  return saved_cutoff_idx
+  saved_cutoff_idx_list = []
+  
+  for cutoff_ratio in args.cutoff_ratio:
+    max_cutoff_length = int(MAX_SEQ_LENGTH * cutoff_ratio)
+    saved_cutoff_idx = np.zeros((dataset_size, max_cutoff_length), dtype=int)
+    saved_cutoff_idx.fill(-1)
+    saved_cutoff_idx_list.append(saved_cutoff_idx.copy())
+  return saved_cutoff_idx_list
 
 
 def main():
@@ -156,10 +167,10 @@ def main():
     task = get_task_name(task)
     
     model, features = get_model_and_data(task, tokenizer, args)
-    saved_cutoff_idx = initialize_cutoff_index_array(len(features), args)
 
     explanations = Generator(model)
     
+    saved_cutoff_idx_list = initialize_cutoff_index_array(len(features), args)
     str_exclude_st = "exclude" if args.exclude_special_tokens else "include"
     
     # for i in range(5):
@@ -167,7 +178,8 @@ def main():
       
       if i%1000==0 and i!=0:
         print(f"save tmp file at step {i}")
-        np.save(str(args.save_dir / f"{task}_{str_exclude_st}_{args.cutoff_ratio}-tmp.npy"), saved_cutoff_idx)
+        for idx_cr in range(len(args.cutoff_ratio)):
+          np.save(str(args.save_dir / f"{task}_{str_exclude_st}_{args.cutoff_ratio[idx_cr]}-tmp.npy"), saved_cutoff_idx_list[idx_cr])
       
       input_ids = torch.tensor(features[i].input_ids, dtype=int).reshape(1,-1).cuda()
       token_type_ids = None if features[i].token_type_ids is None \
@@ -177,17 +189,21 @@ def main():
       input_embeds = model.get_embedding_output(input_ids=input_ids, token_type_ids=token_type_ids)
       input_len = int(torch.sum(attention_masks, dim=1))
       
-      lowest_indices = calculate_token_exp_idx(explanations, input_ids, input_embeds, attention_masks, input_len, args)
+      lowest_indices_list = calculate_token_exp_idx(explanations, input_ids, input_embeds, attention_masks, input_len, args)
       
-      cutoff_idx = lowest_indices.cpu().numpy()
-      saved_cutoff_idx[features[i].example_index, :len(cutoff_idx)] = cutoff_idx
+      for idx_cr in range(len(args.cutoff_ratio)):
+        cutoff_idx = lowest_indices_list[idx_cr].cpu().numpy()
+        saved_cutoff_idx_list[idx_cr][features[i].example_index, :len(cutoff_idx)] = cutoff_idx
 
-    str_exclude_st = "exclude" if args.exclude_special_tokens else "include"
-    print("saving npy file")
-    np.save(str(args.save_dir / f"{task}_{str_exclude_st}_{args.cutoff_ratio}.npy"), saved_cutoff_idx)
+    print("saving npy files")
+    for idx_cr in range(len(args.cutoff_ratio)):
+      np.save(str(args.save_dir / f"{task}_{str_exclude_st}_{args.cutoff_ratio[idx_cr]}.npy"), saved_cutoff_idx_list[idx_cr])
     print("file saved")
     print("Deleting tmp file")
-    os.remove(str(args.save_dir / f"{task}_{str_exclude_st}_{args.cutoff_ratio}-tmp.npy"))
+    for cutoff_ratio in args.cutoff_ratio:
+      tmp_file = str(args.save_dir / f"{task}_{str_exclude_st}_{cutoff_ratio}-tmp.npy")
+      if os.path.exists(tmp_file):
+        os.remove(tmp_file)
     print("Done!")
 
 if __name__=="__main__":
