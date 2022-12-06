@@ -1,4 +1,5 @@
 import os
+import re
 import argparse
 from pathlib import Path
 
@@ -179,7 +180,10 @@ def main():
       if i%1000==0 and i!=0:
         print(f"save tmp file at step {i}")
         for idx_cr in range(len(args.cutoff_ratio)):
-          np.save(str(args.save_dir / f"{task}_{str_exclude_st}_{args.cutoff_ratio[idx_cr]}-tmp.npy"), saved_cutoff_idx_list[idx_cr])
+          np.save(str(args.save_dir / f"{task}_{str_exclude_st}_{args.cutoff_ratio[idx_cr]}-step{i}.npy"), saved_cutoff_idx_list[idx_cr])
+          tmp_file = str(args.save_dir / f"{task}_{str_exclude_st}_{args.cutoff_ratio[idx_cr]}-step{i-1000}.npy")
+          if os.path.exists(tmp_file):
+            os.remove(tmp_file)
       
       input_ids = torch.tensor(features[i].input_ids, dtype=int).reshape(1,-1).cuda()
       token_type_ids = None if features[i].token_type_ids is None \
@@ -201,9 +205,10 @@ def main():
     print("file saved")
     print("Deleting tmp file")
     for cutoff_ratio in args.cutoff_ratio:
-      tmp_file = str(args.save_dir / f"{task}_{str_exclude_st}_{cutoff_ratio}-tmp.npy")
-      if os.path.exists(tmp_file):
-        os.remove(tmp_file)
+      tmp_file_re = f"{task}_{str_exclude_st}_0\.[0-9]+-step[0-9]+\.npy"
+      for file_name in os.listdir(str(args.save_dir)):
+        if re.match(tmp_file_re, file_name):
+          os.remove(str(args.save_dir / file_name))
     print("Done!")
 
 if __name__=="__main__":
