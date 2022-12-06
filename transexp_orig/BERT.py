@@ -530,6 +530,15 @@ class BertModel(BertPreTrainedModel):
 
     def set_input_embeddings(self, value):
         self.embeddings.word_embeddings = value
+        
+    def get_embedding_output(self, input_ids, token_type_ids=None, position_ids=None):
+        assert input_ids is not None
+        input_shape = input_ids.size()
+        device = input_ids.device
+        if token_type_ids is None:
+            token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=device)
+        embedding_output = self.embeddings(input_ids=input_ids, position_ids=position_ids, token_type_ids=token_type_ids)
+        return embedding_output
 
     def forward(
             self,

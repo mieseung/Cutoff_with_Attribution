@@ -538,7 +538,16 @@ class Trainer:
             epochs_trained, int(num_train_epochs), desc="Epoch", disable=not self.is_local_master()
         )
         
-        self._initialize_cutoff_index_array(len(train_dataloader.dataset)) 
+        str_exclude_st = "exclude" if self.args.exclude_special_tokens else "include"
+        npy_file_name = f"cutoff_idx_npy/{self.task}_{str_exclude_st}_{self.args.aug_cutoff_ratio}.npy"
+        if(os.path.exists(npy_file_name)):
+            print("!!npy file exists!!")
+            self.npy_file_exists = True
+            self.saved_cutoff_idx = np.load(npy_file_name)
+        else:
+            print("!!no npy file!!")
+            self.npy_file_exists = False
+            self._initialize_cutoff_index_array(len(train_dataloader.dataset)) 
 
         self.eval_history = []
         for epoch in train_iterator:
@@ -629,6 +638,12 @@ class Trainer:
             if self.args.tpu_metrics_debug:
                 # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
                 xm.master_print(met.metrics_report())
+                
+            if not self.npy_file_exists:
+                os.makedirs("cutoff_idx_npy", exist_ok=True)
+                np.save(npy_file_name, self.saved_cutoff_idx)
+                self.npy_file_exists = True
+                print("!!npy file saved!!")
 
         if self.tb_writer:
             self.tb_writer.close()
@@ -973,15 +988,15 @@ class Trainer:
             input_embed = embeds[i] # 128 x 768
             input_len = input_lens[i]
             
-            if epoch == 0:
-                lowest_indices = self.calculate_token_exp_idx(input_ids, input_embed, attention_masks, input_len, i)
-                cutoff_idx = lowest_indices.cpu().numpy()
-                self.saved_cutoff_idx[example_index, :len(cutoff_idx)] = cutoff_idx
-            else:
+            if self.npy_file_exists or epoch != 0:
                 cutoff_idx = self.saved_cutoff_idx[example_index]
                 if -1 in list(cutoff_idx):
                     cutoff_idx = cutoff_idx[: list(cutoff_idx).index(-1)]   # remove padding
                 lowest_indices = torch.LongTensor(cutoff_idx)
+            else:
+                lowest_indices = self.calculate_token_exp_idx(input_ids, input_embed, attention_masks, input_len, i)
+                cutoff_idx = lowest_indices.cpu().numpy()
+                self.saved_cutoff_idx[example_index, :len(cutoff_idx)] = cutoff_idx
             
             tmp_mask = torch.ones(input_embed.shape[0], ).cuda() #.to(self.args.device)
             for ind in lowest_indices:
