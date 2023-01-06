@@ -9,13 +9,13 @@ $ conda deactivate
 
 ### Training
 ```shell
-$ ./run_glue {dataset name} {GPU number} {train batch size}
-# ./run_glue CoLA 0 16
+$ ./run_glue {dataset name} {GPU number} {train batch size} {token type}
+# ./run_glue CoLA 0 16 token_exp
 ```
 
 ### Cutoff types
 ```
-span_cutoff, token_cutoff, dim_cutoff
+span, token, dim, token_exp
 ```
 
 ## Subprojects
